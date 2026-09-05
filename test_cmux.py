@@ -5,7 +5,6 @@ from unittest.mock import patch
 import cmux_app
 
 NOW = 1_800_000_000
-LIVE = {"WS-1": "director demo", "WS-2": "other"}
 SCREEN = "╭──────╮\n│ Should I use Postgres or SQLite?  │\n╰──────╯\n❯ \n"
 
 
@@ -21,16 +20,22 @@ def event(name="agent.hook.UserPromptSubmit", surface="SURF-A", at=NOW):
 
 
 def collect(sessions, user_times=None, read=lambda surface: SCREEN, **kw):
-    return cmux_app.collect(sessions, LIVE, "SELF", NOW, user_times or {}, read=read, **kw)
+    live = {s["surface_id"].upper(): {"workspace": "WS-1", "title": "director demo"}
+            for s in sessions if s.get("workspace_id") == "WS-1"}
+    return cmux_app.collect(sessions, live, "SELF", NOW, user_times or {}, read=read, **kw)
 
 
 class CmuxTests(unittest.TestCase):
-    def test_live_workspaces_accept_wrapper_and_id_spellings(self):
-        payload = {"workspaces": [{"workspace_id": "ws-1", "title": "one"}, {"uuid": "WS-2", "name": "two"}, {"id": "WS-3"}]}
-        self.assertEqual(cmux_app.workspaces(payload), {"WS-1": "one", "WS-2": "two", "WS-3": ""})
-        self.assertEqual(cmux_app.workspaces([{"id": "ws-9", "title": "bare list"}]), {"WS-9": "bare list"})
-        with self.assertRaises(ValueError):
-            cmux_app.workspaces({"error": "no"})
+    def test_tree_tracks_open_terminals_and_rejects_incomplete_topology(self):
+        workspace = {"workspace_id": "ws-1", "title": "demo", "panes": [{"surfaces": [
+            {"uuid": "surf-a", "type": "terminal"}, {"id": "browser", "type": "browser"}]}]}
+        payload = {"windows": [{"workspaces": [workspace]}]}
+        self.assertEqual(cmux_app.terminals(payload),
+                         ({"SURF-A": {"workspace": "WS-1", "title": "demo"}}, 1))
+        self.assertEqual(cmux_app.terminals({"windows": []}), ({}, 0))
+        for invalid in ({}, {"windows": [None]}, {"windows": [{"workspaces": [{"id": "WS-1"}]}]}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                cmux_app.terminals(invalid)
 
     def test_screen_tail_drops_chrome_and_detects_question(self):
         tail = cmux_app.tail_text(SCREEN)
@@ -46,9 +51,9 @@ class CmuxTests(unittest.TestCase):
                     session("NEEDS", agent_lifecycle="needsInput"), session("UNKNOWN", agent_lifecycle="unknown"),
                     session("IDLE")]
         rows, skipped, errors, dropped = collect(sessions)
-        self.assertEqual({r["id"] for r in rows}, {"NEEDS", "UNKNOWN", "IDLE"})
+        self.assertEqual({r["id"] for r in rows}, {"NEEDS", "UNKNOWN", "IDLE", "GONE"})
         self.assertEqual(skipped + errors, [])
-        self.assertEqual(dropped, {"inactive": 1, "self": 1, "closed": 1, "gone": 1, "running": 1, "old": 0})
+        self.assertEqual(dropped, {"inactive": 1, "self": 1, "closed": 1, "running": 1, "old": 0})
         needs = next(r for r in rows if r["id"] == "NEEDS")
         self.assertTrue(needs["pending_interaction"])
         self.assertEqual(needs["title"], "director demo · Codex")
@@ -59,7 +64,13 @@ class CmuxTests(unittest.TestCase):
                     session("B", updated_at_unix=NOW - 7200)]
         rows, _, _, dropped = collect(sessions, hours=1)
         self.assertEqual([(r["id"], r["session"]) for r in rows], [("A", "newer")])
-        self.assertEqual(dropped["old"], 2)
+        self.assertEqual(dropped["old"], 1)
+
+    def test_old_idle_session_cannot_hide_a_new_running_session(self):
+        rows, _, _, dropped = collect([session(session_id="old"),
+            session(session_id="new", updated_at_unix=NOW, agent_lifecycle="running")])
+        self.assertEqual(rows, [])
+        self.assertEqual(dropped["running"], 1)
 
     def test_recent_user_prompt_skips_the_surface(self):
         for age, excluded in [(179.99, True), (180, False), (180.01, False)]:
@@ -92,6 +103,7 @@ class CmuxTests(unittest.TestCase):
         self.assertNotEqual(base, cmux_app.state(session(agent_lifecycle="needsInput"), SCREEN))
         self.assertNotEqual(base, cmux_app.state(session(session_id="new"), SCREEN))
         self.assertNotEqual(base, cmux_app.state(session(), SCREEN + "Done.\n"))
+        self.assertNotEqual(base, cmux_app.state(session(stored_pid_exists=False), SCREEN))
 
     def test_scan_reads_cmux_only(self):
         calls = []
@@ -100,15 +112,16 @@ class CmuxTests(unittest.TestCase):
             calls.append(args)
             if args[0] == "sessions":
                 return {"state_dir": "/nonexistent", "sessions": [session()]}
-            if args[0] == "list-workspaces":
-                return {"workspaces": [{"workspace_id": "ws-1", "title": "director demo"}]}
+            if args[0] == "tree":
+                return {"windows": [{"workspaces": [{"id": "ws-1", "title": "director demo", "panes": [
+                    {"surfaces": [{"id": "SURF-A", "type": "terminal"}]}]}]}]}
             return SCREEN
         with patch("cmux_app.cmux", side_effect=fake):
             rows, skipped, errors, extras = cmux_app.scan("SELF", NOW)
         self.assertEqual([r["id"] for r in rows], ["SURF-A"])
         self.assertEqual((skipped, errors), ([], []))
         self.assertEqual(extras["workspaces"], 1)
-        self.assertEqual(calls, [("sessions", "list", "--all"), ("list-workspaces", "--id-format", "both"),
+        self.assertEqual(calls, [("sessions", "list", "--all"), ("tree", "--all", "--id-format", "both"),
                                  ("read-screen", "--surface", "SURF-A", "--lines", "60")])
 
 

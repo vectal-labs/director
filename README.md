@@ -49,7 +49,7 @@ python3 scan.py [--hours N] [--seed N]                   # read-only scan, saved
 python3 log.py run --picked <id> --decision leave ...     # record a review (see ROLE.md for all flags)
 python3 log.py override --run N --david "..." --decision unblock --rule Qnn
 python3 log.py stats
-python3 -m unittest discover -s . -p 'test_*.py'          # 39 tests; the CLI tests use fake bb and cmux, never real agents
+python3 -m unittest discover -s . -p 'test_*.py'          # CLI tests use fake bb and cmux, never real agents
 ```
 
 ## Behavior that is deliberately preserved

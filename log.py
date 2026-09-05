@@ -18,7 +18,11 @@ def scan_record(path, picked):
     candidate = next((r for r in scan["candidates"] if r["id"] == picked), None)
     if candidate is None:
         raise ValueError(f"{picked} is not in the supplied scan")
-    return {"app": scan.get("app"), "reviewed_state": candidate.get("state"), "scan_selection": scan.get("selection"),
+    review_key = candidate.get("review_key")
+    if scan.get("app") == "cmux" and not review_key and candidate.get("provider") and candidate.get("session"):
+        review_key = f"cmux:{candidate['provider']}:{candidate['session']}"
+    return {"app": scan.get("app"), "review_key": review_key,
+            "reviewed_state": candidate.get("state"), "scan_selection": scan.get("selection"),
             "selection_reason": candidate.get("eligibility_reason"), "spot_check": candidate.get("spot_check", False)}
 
 

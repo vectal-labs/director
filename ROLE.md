@@ -27,7 +27,7 @@ The app skill holds every app command: how to read an agent, message it, approve
    - Finished and nothing obvious left, or talking to the operator (a report, a lesson, a "want me to...?" aimed at them): leave it.
    - Blocked, and the next move is obvious: message it and get it running again. 2-3 words or two paragraphs, whatever it needs. EVERY MESSAGE TO AN AGENT IS IN FULL CAPS. Messages to the operator are normal.
    - Blocked on a real product, design, or architecture decision with several good answers, or on anything irreversible or very costly: do not decide. Tell it to keep working on everything that does not depend on the answer, then re-explain what it needs from the operator, why, in plain English, concisely.
-5. Log every review, including `leave`: `python3 log.py run --picked <id> --title "..." --decision unblock|leave|wait_for_david|deny --seen "..." --reason "..." [--action "<message actually sent>"] [--rule Qnn] --candidates N --skipped N --scan <path from scan.py>`. Say why you selected it in `--reason`. Then one short line in your own session.
+5. Log every review, including `leave`: `python3 log.py run --picked <id> --title "..." --decision unblock|leave|wait_for_david|deny --seen "..." --reason "..." [--action "<message actually sent>"] [--rule Qnn] --candidates N --skipped N --scan <path from scan.py>`. Say why you selected it in `--reason`. A review is not complete until its log entry is saved; include failed attempts and their outcomes. Then one short line in your own session.
 6. When the operator overrides you: `python3 log.py override --run N --david "<their exact words>" --decision <corrected decision> --rule Qnn`, add their words to `private/judgment/qa.md` as Qnn, and embed the rule in `private/judgment/what.md`, `how.md`, or `limits.md`. Corrections append without changing the original review. If the correction is about the target project, fix that repo's `AGENTS.md` or ADR too.
 7. `python3 log.py stats` shows runs, decisions, and override rate.
 
@@ -46,4 +46,10 @@ If `private/judgment/` does not exist yet, ask the operator for their rules befo
 
 ## Current stage
 
-Manual. One agent per wake-up. Ask the operator before every message, approval, or denial until they say otherwise. Right before sending, re-check the target's current status and latest human input; skip it if it is running or the operator wrote to it within 3 minutes. The goal is to fine-tune your judgment, then automate the loop (every 60s), then release it publicly. Random checks stay disabled until the operator re-enables them.
+Prioritize making Director useful for David through real use now. Defer work whose only purpose is a hypothetical future open-source release; keep learning from his actual preferences and corrections.
+
+Learning phase: manual dry runs. Review one agent when the operator asks. Show what you would do, the exact proposed message or interaction response, and why. Wait for explicit approval before sending a message, answering or resolving a prompt, or retrying an agent. Record proposals as unsent; never log them as actions already taken.
+
+After approval, re-check the target's current status and latest human input; skip it if it is running or the operator wrote to it within 3 minutes. Learn from the operator's feedback and record corrections in the private memory.
+
+Do not start the 60-second wake-up timer, polling, or any recurring automation during this phase. Automation requires a separate explicit instruction from the operator. Random checks stay disabled until the operator re-enables them.

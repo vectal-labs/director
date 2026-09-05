@@ -1,10 +1,12 @@
 # Open questions
 
-Reviewing Fable’s four implementation uncertainties with David, one at a time (05-09-2026). No changes are approved by this list.
+Current priority: make Director useful for David now. Review implementation uncertainties when they affect that use; defer hypothetical release work (05-09-2026).
 
-1. **Public rules — resolved.** Ship nearly empty starter files without personal preferences; keep actual personal rules and history private. See `scope.md` and `private/qa.md` (05-09-2026). This replaces the proposed C recommendation.
-2. **Naming.** The role says “operator”; the persisted log schema still says “David”. Pending discussion.
-3. **Stopped cmux processes.** The scanner drops dead processes, including potentially resumable sessions. Pending discussion.
-4. **cmux review identity.** History follows the surface rather than the agent session. Pending discussion.
+1. **Public rules — deferred.** The earlier “resolved” conclusion was incorrect. Keep using David’s full rules and history. Public starter-file contents are a later release question, not current implementation work. See `scope.md` and `private/qa.md`.
+2. **Naming — deferred unless it affects current use.** The role says “operator”; the persisted log schema still says “David”. Do not do a naming migration only for hypothetical future users.
+3. **Exited cmux agents — implemented.** David chose B: review exited agents whose terminals are still open. This replaces the blanket exclusion of dead processes. Existing approval requirements still apply before resuming anything. See `scope.md` and `private/qa.md` (05-09-2026).
+4. **cmux review identity — implemented.** David chose B: history follows the agent session. A new conversation in the same terminal gets its own history; moving the same session to another terminal preserves its history. This replaces the current terminal-based review identity. See `scope.md` and `private/qa.md` (05-09-2026).
+
+Automated tests cover both cmux changes. Live cmux validation remains pending because the app is closed.
 
 Accepted extraction scope remains in `scope.md`. Answers will be recorded in `private/qa.md`.

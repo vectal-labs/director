@@ -1,4 +1,4 @@
-"""cmux adapter. Reads cmux only: saved agent sessions, live workspaces, recent prompts, and each stopped agent's screen.
+"""cmux adapter. Reads cmux only: saved sessions, open terminals, recent prompts, and stopped agents' screens.
 
 Nothing here types into a surface, focuses anything, or changes cmux state.
 """
@@ -31,17 +31,33 @@ def cmux(*args, as_json=True):
     return json.loads(result.stdout) if as_json else result.stdout
 
 
-def workspaces(payload):
-    """Live workspaces as {UUID: title}. Accepts a bare list or a {"workspaces": [...]} wrapper."""
-    items = payload.get("workspaces") if isinstance(payload, dict) else payload
-    if not isinstance(items, list):
-        raise ValueError("cmux list-workspaces did not return workspaces")
-    result = {}
-    for item in items:
-        uuid = item.get("workspace_id") or item.get("uuid") or item.get("id")
-        if uuid:
-            result[str(uuid).upper()] = item.get("title") or item.get("name") or ""
-    return result
+def tree_items(node, key):
+    items = node.get(key) if isinstance(node, dict) else None
+    if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+        raise ValueError(f"cmux tree did not return {key}")
+    return items
+
+
+def tree_id(node, kind):
+    value = node.get(f"{kind}_id") or node.get("uuid") or node.get("id")
+    if not value:
+        raise ValueError(f"cmux tree is missing a {kind} ID")
+    return str(value).upper()
+
+
+def terminals(payload):
+    """Map open terminal UUIDs to their current workspace and title across all windows."""
+    live, workspaces = {}, set()
+    for window in tree_items(payload, "windows"):
+        for workspace in tree_items(window, "workspaces"):
+            uuid = tree_id(workspace, "workspace")
+            workspaces.add(uuid)
+            for pane in tree_items(workspace, "panes"):
+                for surface in tree_items(pane, "surfaces"):
+                    if surface.get("type") == "terminal":
+                        live[tree_id(surface, "surface")] = {
+                            "workspace": uuid, "title": workspace.get("title") or workspace.get("name") or ""}
+    return live, len(workspaces)
 
 
 def user_input_times(path):
@@ -74,32 +90,40 @@ def tail_text(text, limit=400):
 
 
 def state(session, text):
-    value = [session["agent_lifecycle"], session["session_id"], session.get("updated_at_unix"), text]
+    value = [status(session), session["session_id"], session.get("updated_at_unix"), text]
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def row(session, title, now, user_times, read):
+def status(session):
+    # A crashed process can leave its hook lifecycle stuck on "running".
+    return "exited" if session.get("stored_pid_exists") is False else session["agent_lifecycle"]
+
+
+def row(session, terminal, now, user_times, read):
     surface = session["surface_id"].upper()
     updated = session.get("updated_at_unix") or 0
     user_at = user_times.get(surface)
     text = read(surface)
     tail = tail_text(text)
+    if not session.get("session_id") or not session.get("agent"):
+        raise ValueError("cmux session is missing its agent or session ID")
     return {
-        "id": surface, "title": f"{title} · {session.get('agent_display_name') or session['agent']}".strip(" ·"),
-        "project": session.get("cwd"), "provider": session["agent"], "status": session["agent_lifecycle"],
-        "workspace": session["workspace_id"].upper(), "session": session["session_id"], "pid": session.get("pid"),
+        "id": surface, "review_key": f"cmux:{session['agent']}:{session['session_id']}",
+        "title": f"{terminal['title']} · {session.get('agent_display_name') or session['agent']}".strip(" ·"),
+        "project": session.get("cwd"), "provider": session["agent"], "status": status(session),
+        "workspace": terminal["workspace"], "session": session["session_id"], "pid": session.get("pid"),
         "idle_min": round((now - updated) / 60),
         "user_at_ms": round(user_at * 1000) if user_at else None,
         "user_min_ago": round((now - user_at) / 60, 2) if user_at else None,
-        "pending_interaction": session["agent_lifecycle"] == "needsInput", "parent": None,
+        "pending_interaction": status(session) == "needsInput", "parent": None,
         "recent_error": None, "ends_with_question": tail.endswith("?"), "last_agent_msg": tail,
         "state": state(session, text),
     }
 
 
 def collect(sessions, live, self_surface, now, user_times, hours=None, read=screen):
-    """Stopped agents on live surfaces. `live` maps workspace UUID to title; `read` fetches a surface's screen."""
-    dropped = {"inactive": 0, "self": 0, "closed": 0, "gone": 0, "running": 0, "old": 0}
+    """Stopped agents on open terminals. `live` comes from the all-window tree."""
+    dropped = {"inactive": 0, "self": 0, "closed": 0, "running": 0, "old": 0}
     latest = {}
     for session in sessions:
         surface = str(session.get("surface_id") or "").upper()
@@ -107,20 +131,20 @@ def collect(sessions, live, self_surface, now, user_times, hours=None, read=scre
             dropped["inactive"] += 1
         elif surface == (self_surface or "").upper():
             dropped["self"] += 1
-        elif str(session.get("workspace_id") or "").upper() not in live:
+        elif surface not in live:
             dropped["closed"] += 1
-        elif session.get("stored_pid_exists") is False:
-            dropped["gone"] += 1
-        elif session.get("agent_lifecycle") in RUNNING:
-            dropped["running"] += 1
-        elif hours is not None and now - (session.get("updated_at_unix") or 0) > hours * 3600:
-            dropped["old"] += 1
         elif (session.get("updated_at_unix") or 0) >= (latest.get(surface, {}).get("updated_at_unix") or 0):
             latest[surface] = session
     candidates, skipped, errors = [], [], []
     for surface, session in latest.items():
         try:
-            entry = row(session, live[session["workspace_id"].upper()], now, user_times, read)
+            if status(session) in RUNNING:
+                dropped["running"] += 1
+                continue
+            if hours is not None and now - (session.get("updated_at_unix") or 0) > hours * 3600:
+                dropped["old"] += 1
+                continue
+            entry = row(session, live[surface], now, user_times, read)
             recent = entry["user_at_ms"] is not None and now * 1000 - entry["user_at_ms"] < 180_000
             (skipped if recent else candidates).append(entry)
         except ERRORS as error:
@@ -130,7 +154,7 @@ def collect(sessions, live, self_surface, now, user_times, hours=None, read=scre
 
 def scan(self_surface, now, hours=None):
     saved = cmux("sessions", "list", "--all")
-    live = workspaces(cmux("list-workspaces", "--id-format", "both"))
+    live, workspace_count = terminals(cmux("tree", "--all", "--id-format", "both"))
     user_times = user_input_times(pathlib.Path(saved["state_dir"]) / "events.jsonl")
     candidates, skipped, errors, dropped = collect(saved["sessions"], live, self_surface, now, user_times, hours)
-    return candidates, skipped, errors, {"workspaces": len(live), "listed": len(saved["sessions"]), "dropped": dropped}
+    return candidates, skipped, errors, {"workspaces": workspace_count, "listed": len(saved["sessions"]), "dropped": dropped}

@@ -17,11 +17,13 @@ Your own surface is `$CMUX_SURFACE_ID` in workspace `$CMUX_WORKSPACE_ID`; `cmux 
 ## Scan (read-only)
 
 ```bash
-python3 scan.py            # every stopped agent in open cmux workspaces, ranked; saves private/scans/<time>.json
+python3 scan.py            # stopped and exited agents in open cmux terminals, ranked; saves private/scans/<time>.json
 python3 scan.py --hours 6  # only sessions updated in the last 6 hours
 ```
 
-Sources: `cmux sessions list` (hook-recorded sessions), `cmux list-workspaces` (only open workspaces count), `~/.cmuxterm/events.jsonl` (last prompt per surface), and `cmux read-screen` per stopped agent. Per candidate: `id` (surface UUID), `title` (workspace and agent), `project` (cwd), `provider` (agent), `status` (`idle`, `needsInput`, `unknown`), `idle_min`, `pending_interaction` (`needsInput`), `last_agent_msg` (bottom of its screen), `user_min_ago`, and the review fields. `dropped` counts what was excluded and why; `coverage: partial` means some screens could not be read, listed in `errors`.
+Sources: `cmux sessions list` (hook-recorded sessions), `cmux tree --all --id-format both --json` (open terminals across all windows), `~/.cmuxterm/events.jsonl` (last prompt per surface), and `cmux read-screen` per stopped agent. Per candidate: `id` (surface UUID), `title` (workspace and agent), `project` (cwd), `provider` (agent), `status` (`idle`, `needsInput`, `unknown`, `exited`), `idle_min`, `pending_interaction` (`needsInput`), `last_agent_msg` (bottom of its screen), `user_min_ago`, and the review fields. `dropped` counts what was excluded and why; `coverage: partial` means some screens could not be read, listed in `errors`.
+
+Memory follows `review_key` (provider and session), while `id` remains the current surface UUID for commands and `--picked`. New conversations get fresh history; moving the same session retains its history. Always supply `--scan` when logging. Old surface-only log entries remain readable but are not assigned to an unknown conversation.
 
 ## Read one agent
 
@@ -39,9 +41,11 @@ cmux read-screen --surface <uuid> --lines 20   # still stopped, still the same p
 python3 scan.py                                # the surface must not be in skipped_user_recent
 ```
 
-If it is working or the operator wrote within 3 minutes, do nothing and log `leave` with the reason.
+Confirm the candidate still has the same `session` and use its current surface ID. If it is working or the operator wrote within 3 minutes, do nothing and log `leave` with the reason.
 
 ## Act (manual stage: only after the operator says yes)
+
+For `exited`, inspect the session metadata and propose the exact resume command for approval. Do not send a chat message into its shell. Confirm the agent has resumed before sending it instructions.
 
 ```bash
 cmux send --surface <uuid> "YOUR MESSAGE IN FULL CAPS"

@@ -76,6 +76,17 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(history["last_decision"], "unblock")
         self.assertEqual(history["last_review_at"], rows[-1]["ts"])
 
+    def test_legacy_surface_history_does_not_attach_to_an_unknown_session(self):
+        rows = [candidate("SURF", review_key="cmux:claude:new-session")]
+        memory.rank(rows, [review("SURF", app="cmux")], NOW, 1)
+        self.assertEqual(rows[0]["history"]["pick_count"], 0)
+        self.assertEqual(rows[0]["eligibility_reason"], "never_reviewed")
+
+    def test_providers_with_the_same_session_id_have_separate_history(self):
+        rows = [candidate("SURF", review_key="cmux:codex:session")]
+        memory.rank(rows, [review("SURF", review_key="cmux:claude:session")], NOW, 1)
+        self.assertEqual(rows[0]["history"]["pick_count"], 0)
+
     def test_manual_runs_always_use_priority_regardless_of_seed(self):
         for seed in range(1000):
             rows = [candidate("low"), candidate("urgent", pending_interaction=True)]

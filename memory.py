@@ -53,7 +53,7 @@ def read(text=None):
 def histories(runs):
     result = {}
     for row in runs:
-        picked = row["picked"]
+        picked = row.get("review_key") or row["picked"]
         count = result.get(picked, {}).get("pick_count", 0) + 1
         result[picked] = {
             "pick_count": count, "last_run": row["run"],
@@ -68,7 +68,7 @@ def histories(runs):
 def rank(candidates, runs, now, seed):
     history = histories(runs)
     for row in candidates:
-        previous = history.get(row["id"])
+        previous = history.get(row.get("review_key") or row["id"])
         elapsed, changed, reason = None, None, "never_reviewed"
         if previous:
             elapsed = max(0, now - dt.datetime.fromisoformat(previous["last_review_at"]).timestamp())

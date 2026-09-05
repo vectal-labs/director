@@ -27,8 +27,8 @@ elif app == "bb" and args[:2] == ["thread", "log"]:
     result = data["events"][args[2]]
 elif app == "cmux" and args == ["sessions", "list", "--all"]:
     result = {"state_dir": str(Path(os.environ["FAKE_FIXTURE"]).parent), "sessions": data["sessions"]}
-elif app == "cmux" and args == ["list-workspaces", "--id-format", "both"]:
-    result = {"workspaces": data["workspaces"]}
+elif app == "cmux" and args == ["tree", "--all", "--id-format", "both"]:
+    result = data["tree"]
 elif app == "cmux" and args[:2] == ["read-screen", "--surface"]:
     sys.exit(print(data["screens"][args[2]]))
 else:
@@ -168,9 +168,58 @@ class CliTests(unittest.TestCase):
                          {**session, "surface_id": "STOPPED", "session_id": "s1"},
                          {**session, "surface_id": "FRESH", "session_id": "s2"},
                          {**session, "surface_id": "BUSY", "session_id": "s3", "agent_lifecycle": "running"}],
-            "workspaces": [{"workspace_id": "ws-1", "workspace_ref": "workspace:1", "title": "demo"}],
             "screens": {"STOPPED": "│ Tests pass. Ship it?\n❯ ", "FRESH": "working"}}}
+        self.fixture["cmux"]["tree"] = {"windows": [{"id": "WIN-1", "workspaces": [
+            {"id": "WS-1", "title": "demo", "panes": [{"id": "PANE-1", "surfaces": [
+                {"id": surface, "type": "terminal"} for surface in ("SELF", "STOPPED", "FRESH", "BUSY")]}]}]}]}
         self.save_fixture()
+
+    def test_cmux_exited_agents_in_all_windows_but_not_closed_terminals(self):
+        self.cmux_fixture()
+        data = self.fixture["cmux"]
+        base = data["sessions"][1]
+        data["sessions"] += [
+            {**base, "surface_id": "EXITED", "session_id": "s4", "workspace_id": "WS-2",
+             "stored_pid_exists": False, "agent_lifecycle": "running"},
+            {**base, "surface_id": "CLOSED", "session_id": "s5", "stored_pid_exists": False}]
+        data["tree"]["windows"].append({"id": "WIN-2", "workspaces": [
+            {"id": "WS-2", "title": "second window", "panes": [{"id": "PANE-2", "surfaces": [
+                {"id": "EXITED", "type": "terminal"}]}]}]})
+        data["screens"]["EXITED"] = "$ "
+        # A stale saved session can still have readable shell text in our fake.
+        data["screens"]["CLOSED"] = "$ "
+        self.save_fixture()
+        scan = self.scan(env=self.cmux_env())
+        rows = {row["id"]: row for row in scan["candidates"]}
+        self.assertEqual(set(rows), {"STOPPED", "EXITED"})
+        self.assertEqual(rows["EXITED"]["status"], "exited")
+        self.assertEqual(rows["EXITED"]["title"], "second window · Claude Code")
+        self.assertEqual(scan["workspaces"], 2)
+        self.assertEqual(scan["dropped"]["closed"], 1)
+        self.assertEqual(scan["coverage"], "full")
+
+    def test_cmux_history_follows_session_across_terminals(self):
+        self.cmux_fixture()
+        first = self.scan(env=self.cmux_env())
+        self.log_review(first, picked="STOPPED")
+        original_log = self.log_path.read_bytes()
+        data = self.fixture["cmux"]
+        moved = {**data["sessions"][1], "surface_id": "MOVED"}
+        data["sessions"][1]["session_id"] = "brand-new-conversation"
+        data["sessions"].append(moved)
+        data["tree"]["windows"][0]["workspaces"][0]["panes"][0]["surfaces"].append(
+            {"id": "MOVED", "type": "terminal"})
+        data["screens"]["MOVED"] = data["screens"]["STOPPED"]
+        self.save_fixture()
+        rows = {row["id"]: row for row in self.scan(env=self.cmux_env())["candidates"]}
+        self.assertEqual(rows["STOPPED"]["history"]["pick_count"], 0)
+        self.assertEqual(rows["MOVED"]["history"]["pick_count"], 1)
+        self.assertEqual(rows["MOVED"]["eligibility_reason"], "leave_cooldown")
+        self.log_review(self.scan(env=self.cmux_env()), picked="MOVED")
+        self.assertTrue(self.log_path.read_bytes().startswith(original_log))
+        rows = {row["id"]: row for row in self.scan(env=self.cmux_env())["candidates"]}
+        self.assertEqual(rows["MOVED"]["history"]["pick_count"], 2)
+        self.assertNotIn("bb", self.called())
 
     def test_cmux_director_scans_cmux_only(self):
         self.cmux_fixture()
@@ -179,7 +228,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(first["self"], "SELF")
         self.assertEqual([r["id"] for r in first["candidates"]], ["STOPPED"])
         self.assertEqual(first["skipped_user_recent"], ["FRESH"])
-        self.assertEqual(first["dropped"], {"inactive": 0, "self": 1, "closed": 0, "gone": 0, "running": 1, "old": 0})
+        self.assertEqual(first["dropped"], {"inactive": 0, "self": 1, "closed": 0, "running": 1, "old": 0})
         self.assertEqual(first["selection"]["suggested"], "STOPPED")
         self.assertTrue(first["candidates"][0]["ends_with_question"])
         self.assertEqual(first["candidates"][0]["title"], "demo · Claude Code")
@@ -198,11 +247,11 @@ class CliTests(unittest.TestCase):
 
     def test_cmux_scan_fails_loudly_when_the_app_is_not_reachable(self):
         self.cmux_fixture()
-        del self.fixture["cmux"]["workspaces"]
+        del self.fixture["cmux"]["tree"]
         self.save_fixture()
         result = self.cli("scan.py", check=False, env=self.cmux_env())
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("list-workspaces", result.stderr)
+        self.assertIn("tree", result.stderr)
         self.assertFalse((self.root / "private" / "scans").exists())
 
     def test_launch_app_must_be_unambiguous(self):
