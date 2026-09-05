@@ -5,6 +5,7 @@ Nothing here messages an agent or resolves an interaction.
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import math
 import subprocess
 
 SELF_VAR = "BB_THREAD_ID"
@@ -15,7 +16,7 @@ MEANINGFUL = {
     "interaction/request", "system/interaction/lifecycle", "system/permissionGrant/lifecycle",
     "system/userQuestion/lifecycle", "thread/status/changed",
 }
-ERRORS = (RuntimeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired)
+ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError, OverflowError, subprocess.TimeoutExpired)
 
 
 def bb(*args):
@@ -27,38 +28,67 @@ def bb(*args):
 
 def last_text(events, item_type):
     for event in reversed(events):
-        item = event.get("data", {}).get("item", {})
-        if event["type"] == "item/completed" and item.get("type") == item_type:
-            return item.get("text", "")
+        if event["type"] == "item/completed":
+            item = event["data"]["item"]
+            if item["type"] == item_type:
+                return item["text"]
     return ""
 
 
 def state(thread, events):
     relevant = []
     for event in events:
-        item = event.get("data", {}).get("item", {})
-        message = event["type"] == "item/completed" and item.get("type") in {"agentMessage", "userMessage"}
+        message = (event["type"] == "item/completed"
+                   and event["data"]["item"]["type"] in {"agentMessage", "userMessage"})
         if event["type"] in MEANINGFUL or message:
             relevant.append((event.get("id"), event.get("seq"), event["createdAt"], event["type"], event["data"]))
     value = [thread["status"], thread.get("hasPendingInteraction", False), relevant]
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def scan_thread(thread, now):
-    events = bb("thread", "log", thread["id"], "--all")
+def validate_events(events):
     if not isinstance(events, list):
         raise ValueError("bb thread log did not return events")
+    for number, event in enumerate(events, 1):
+        detail = f"bb thread log event {number} is malformed"
+        if not isinstance(event, dict) or not isinstance(event.get("type"), str) or not event["type"]:
+            raise ValueError(detail)
+        at = event.get("createdAt")
+        if type(at) not in (int, float) or not math.isfinite(at):
+            raise ValueError(detail + ": invalid createdAt")
+        if event["type"] not in MEANINGFUL and event["type"] != "item/completed":
+            continue
+        data = event.get("data")
+        if not isinstance(data, dict):
+            raise ValueError(detail + ": invalid data")
+        if event["type"] == "client/turn/requested":
+            if any(data.get(key) is not None and not isinstance(data[key], str)
+                   for key in ("initiator", "senderThreadId")):
+                raise ValueError(detail + ": invalid sender")
+        if event["type"] == "item/completed":
+            item = data.get("item")
+            if not isinstance(item, dict) or not isinstance(item.get("type"), str):
+                raise ValueError(detail + ": invalid item")
+            if item["type"] in {"agentMessage", "userMessage"} and not isinstance(item.get("text"), str):
+                raise ValueError(detail + ": invalid message text")
+
+
+def scan_thread(thread, now):
+    events = bb("thread", "log", thread["id"], "--all")
+    validate_events(events)
     users = [e for e in events if e["type"] == "client/turn/requested"
              and e["data"].get("initiator") not in {"system", "agent"} and not e["data"].get("senderThreadId")]
-    last_user_at = users[-1]["createdAt"] if users else None
+    last_user_at = max((event["createdAt"] for event in users), default=None)
     errors = [e for e in events if e["type"] in {"provider/error", "system/error"}]
-    error = errors[-1] if errors and errors[-1]["createdAt"] >= events[-1]["createdAt"] - 60_000 else None
+    error = max(errors, key=lambda event: event["createdAt"], default=None)
+    if error and error["createdAt"] < max(event["createdAt"] for event in events) - 60_000:
+        error = None
     agent = last_text(events, "agentMessage")
     return {
-        "id": thread["id"], "title": thread.get("title") or thread.get("titleFallback", "")[:80],
+        "id": thread["id"], "title": thread.get("title") or (thread.get("titleFallback") or "")[:80],
         "project": thread["projectId"], "provider": thread.get("providerId"), "status": thread["status"],
         "idle_min": round((now * 1000 - thread["updatedAt"]) / 60_000),
-        "user_at_ms": last_user_at,
+        "input_history_known": True, "user_at_ms": last_user_at,
         "user_min_ago": round((now * 1000 - last_user_at) / 60_000, 2) if last_user_at is not None else None,
         "pending_interaction": thread.get("hasPendingInteraction", False), "parent": thread.get("parentThreadId"),
         "recent_error": str(error["data"].get("detail") or error["data"].get("message") or "error")[:160] if error else None,
@@ -68,11 +98,34 @@ def scan_thread(thread, now):
 
 
 def collect(threads, now, self_id, host_id, hours=None):
-    eligible = [t for t in threads if t["id"] != self_id and not t.get("archivedAt")
-                and not t.get("deletedAt") and t.get("visibility") != "hidden" and t["status"] not in RUNNING
-                and t.get("environmentHostId") == host_id
-                and (hours is None or now * 1000 - t["updatedAt"] <= hours * 3600_000)]
-    candidates, skipped, errors = [], [], []
+    if not isinstance(threads, list):
+        raise ValueError("bb thread list did not return threads")
+    eligible, candidates, skipped, errors = [], [], [], []
+    for thread in threads:
+        thread_id = None
+        try:
+            if not isinstance(thread, dict) or not isinstance(thread.get("id"), str) or not thread["id"]:
+                raise ValueError("bb thread is missing a valid ID")
+            thread_id = thread["id"]
+            if thread_id == self_id or thread.get("archivedAt") or thread.get("deletedAt"):
+                continue
+            if thread.get("visibility") == "hidden":
+                continue
+            for key in ("status", "environmentHostId", "projectId"):
+                if not isinstance(thread.get(key), str) or not thread[key]:
+                    raise ValueError(f"bb thread is missing a valid {key}")
+            if thread["status"] in RUNNING or thread["environmentHostId"] != host_id:
+                continue
+            updated = thread.get("updatedAt")
+            if type(updated) not in (int, float) or not math.isfinite(updated):
+                raise ValueError("bb thread has an invalid updatedAt")
+            for key in ("title", "titleFallback"):
+                if thread.get(key) is not None and not isinstance(thread[key], str):
+                    raise ValueError(f"bb thread has an invalid {key}")
+            if hours is None or now * 1000 - updated <= hours * 3600_000:
+                eligible.append(thread)
+        except ERRORS as error:
+            errors.append({"id": thread_id, "error": type(error).__name__, "detail": str(error)})
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = [(thread, pool.submit(scan_thread, thread, now)) for thread in eligible]
         for thread, future in futures:
@@ -86,7 +139,12 @@ def collect(threads, now, self_id, host_id, hours=None):
 
 
 def scan(self_id, now, hours=None):
-    host = bb("status")["thread"]["environment"]["hostId"]
+    status = bb("status")
+    thread = status.get("thread") if isinstance(status, dict) else None
+    environment = thread.get("environment") if isinstance(thread, dict) else None
+    host = environment.get("hostId") if isinstance(environment, dict) else None
+    if not isinstance(host, str) or not host:
+        raise ValueError("bb status did not return an environment host ID")
     threads = bb("thread", "list")
     candidates, skipped, errors = collect(threads, now, self_id, host, hours)
     return candidates, skipped, errors, {"host": host, "listed": len(threads)}

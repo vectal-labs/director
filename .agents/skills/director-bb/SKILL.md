@@ -14,7 +14,7 @@ python3 scan.py            # every stopped bb thread on this Mac, ranked; saves 
 python3 scan.py --hours 6  # only threads updated in the last 6 hours
 ```
 
-Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, `pending`), `idle_min`, `pending_interaction`, `recent_error`, `ends_with_question`, `last_agent_msg`, `user_min_ago` (last human message), and the review fields `eligibility_reason`, `review_eligible`, `history`. `skipped_user_recent` lists threads the operator wrote to in the last 3 minutes. `coverage: partial` means some `bb thread log` calls failed; those threads are in `errors`, so do not treat them as clear.
+Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, `pending`), `idle_min`, `pending_interaction`, `recent_error`, `ends_with_question`, `last_agent_msg`, `user_min_ago` (last human message), and the review fields `eligibility_reason`, `review_eligible`, `history`. `skipped_user_recent` lists threads the operator wrote to in the last 3 minutes. `coverage: partial` means some thread data or logs could not be read reliably; those failures are in `errors`, so do not treat affected threads as clear.
 
 ## Read one thread
 
@@ -35,7 +35,7 @@ bb thread show <id> --json    # status must still be stopped
 python3 scan.py               # the thread must not be in skipped_user_recent
 ```
 
-If it is running or the operator wrote within 3 minutes, do nothing and log `leave` with the reason.
+The target must still be a candidate with `input_history_known: true`, and its current prompt must still match the approved action. If it is running, absent, recently contacted, unreadable, or changed, do nothing and append `outcome --status skipped` to the original review. Keep the original scan and run number; the recheck scan may no longer contain the target.
 
 ## Act (manual stage: only after the operator says yes)
 
@@ -48,7 +48,7 @@ bb thread interactions deny <interactionId> <id>                       # then te
 bb thread retry <id>                                                   # errored thread: re-sends its failed turn verbatim
 ```
 
-A `tell` to a thread that is waiting on an interaction is queued until the interaction settles, so resolve the interaction first, or deny it and then tell. `--json` shows `delivery: sent|queued`; queued is not a failure, do not resend.
+A `tell` to a thread that is waiting on an interaction is queued until the interaction settles, so resolve the interaction first, or deny it and then tell. Use `--json` to read `delivery: sent|queued` and record that exact result. Queued is not a failure or proof of a resume; do not resend.
 
 ## Never
 
@@ -56,12 +56,23 @@ A `tell` to a thread that is waiting on an interaction is queued until the inter
 - Touch cmux. You watch bb only.
 - Message a thread the operator wrote to in the last 3 minutes.
 
-## Log
+## Record the proposal and outcome
+
+Before asking for approval, save the review and exact proposed action. For `leave`, omit `--proposed-action`.
 
 ```bash
 python3 log.py run --picked <id> --title "..." --decision unblock|leave|wait_for_david|deny \
-  --seen "..." --reason "..." [--action "<message actually sent>"] [--rule Qnn] \
+  --seen "..." --reason "..." [--proposed-action "<exact unsent action>"] [--rule Qnn] \
   --candidates N --skipped N --scan <scan path from scan.py>
 ```
 
-Then one short line in your own thread: what you reviewed, what you decided, why.
+Keep the returned run number. After approval and recheck, append what actually happened:
+
+```bash
+python3 log.py outcome --run N --status sent --detail "<actual delivery result>"
+# Use queued, failed, or skipped when appropriate. --action records approved text that changed.
+python3 log.py outcome --run N --status skipped --detail "<why>" --scan <recheck scan path>
+python3 log.py confirm --run N   # once after sent/queued; reads bb, never sends input
+```
+
+`confirm` records whether the same thread is now `active`. A stopped or unreadable thread stays unconfirmed; do not poll or resend to force confirmation. New attempts need a new review. Then one short line with the actual outcome.

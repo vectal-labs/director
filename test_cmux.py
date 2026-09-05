@@ -22,7 +22,7 @@ def event(name="agent.hook.UserPromptSubmit", surface="SURF-A", at=NOW):
 def collect(sessions, user_times=None, read=lambda surface: SCREEN, **kw):
     live = {s["surface_id"].upper(): {"workspace": "WS-1", "title": "director demo"}
             for s in sessions if s.get("workspace_id") == "WS-1"}
-    return cmux_app.collect(sessions, live, "SELF", NOW, user_times or {}, read=read, **kw)
+    return cmux_app.collect(sessions, live, "SELF", NOW, lambda: cmux_app.InputHistory(times=user_times or {}), read=read, **kw)
 
 
 class CmuxTests(unittest.TestCase):
@@ -73,7 +73,7 @@ class CmuxTests(unittest.TestCase):
         self.assertEqual(dropped["running"], 1)
 
     def test_recent_user_prompt_skips_the_surface(self):
-        for age, excluded in [(179.99, True), (180, False), (180.01, False)]:
+        for age, excluded in [(179.99, True), (179.9999, True), (180, False), (180.01, False)]:
             with self.subTest(age=age):
                 rows, skipped, errors, _ = collect([session()], {"SURF-A": NOW - age})
                 self.assertEqual(bool(skipped), excluded)
@@ -83,10 +83,15 @@ class CmuxTests(unittest.TestCase):
     def test_user_prompt_times_come_from_the_event_log(self):
         text = "\n".join(["not json", event(at=NOW - 500), event(name="agent.hook.Stop", at=NOW - 100),
                           event(at=NOW - 300), event(surface="SURF-B", at=NOW - 50), json.dumps([1])])
-        with patch("pathlib.Path.read_text", return_value=text):
-            times = cmux_app.user_input_times("events.jsonl")
-        self.assertEqual(times, {"SURF-A": NOW - 300, "SURF-B": NOW - 50})
-        self.assertEqual(cmux_app.user_input_times("/nonexistent/events.jsonl"), {})
+        with patch("pathlib.Path.read_bytes", return_value=text.encode()):
+            history = cmux_app.user_input_times("events.jsonl")
+        self.assertEqual(history.times, {"SURF-A": NOW - 300, "SURF-B": NOW - 50})
+        self.assertTrue(history.all_unknown)
+        self.assertEqual(len(history.errors), 2)
+        missing = cmux_app.user_input_times("/nonexistent/events.jsonl")
+        self.assertEqual(missing.times, {})
+        self.assertTrue(missing.all_unknown)
+        self.assertEqual(missing.errors[0]["error"], "FileNotFoundError")
 
     def test_screen_failure_is_visible_and_other_surfaces_are_scanned(self):
         def read(surface):
@@ -119,7 +124,9 @@ class CmuxTests(unittest.TestCase):
         with patch("cmux_app.cmux", side_effect=fake):
             rows, skipped, errors, extras = cmux_app.scan("SELF", NOW)
         self.assertEqual([r["id"] for r in rows], ["SURF-A"])
-        self.assertEqual((skipped, errors), ([], []))
+        self.assertEqual(skipped, [])
+        self.assertFalse(rows[0]["input_history_known"])
+        self.assertEqual(errors[0]["error"], "FileNotFoundError")
         self.assertEqual(extras["workspaces"], 1)
         self.assertEqual(calls, [("sessions", "list", "--all"), ("tree", "--all", "--id-format", "both"),
                                  ("read-screen", "--surface", "SURF-A", "--lines", "60")])

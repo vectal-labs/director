@@ -25,6 +25,8 @@ elif app == "bb" and args == ["thread", "list"]:
     result = data["threads"]
 elif app == "bb" and args[:2] == ["thread", "log"]:
     result = data["events"][args[2]]
+elif app == "bb" and args[:2] == ["thread", "show"]:
+    result = {"thread": next(t for t in data["threads"] if t["id"] == args[2])}
 elif app == "cmux" and args == ["sessions", "list", "--all"]:
     result = {"state_dir": str(Path(os.environ["FAKE_FIXTURE"]).parent), "sessions": data["sessions"]}
 elif app == "cmux" and args == ["tree", "--all", "--id-format", "both"]:

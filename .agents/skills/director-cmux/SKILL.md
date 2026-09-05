@@ -21,9 +21,11 @@ python3 scan.py            # stopped and exited agents in open cmux terminals, r
 python3 scan.py --hours 6  # only sessions updated in the last 6 hours
 ```
 
-Sources: `cmux sessions list` (hook-recorded sessions), `cmux tree --all --id-format both --json` (open terminals across all windows), `~/.cmuxterm/events.jsonl` (last prompt per surface), and `cmux read-screen` per stopped agent. Per candidate: `id` (surface UUID), `title` (workspace and agent), `project` (cwd), `provider` (agent), `status` (`idle`, `needsInput`, `unknown`, `exited`), `idle_min`, `pending_interaction` (`needsInput`), `last_agent_msg` (bottom of its screen), `user_min_ago`, and the review fields. `dropped` counts what was excluded and why; `coverage: partial` means some screens could not be read, listed in `errors`.
+Sources: `cmux sessions list` (hook-recorded sessions), `cmux tree --all --id-format both --json` (open terminals across all windows), `~/.cmuxterm/events.jsonl` (last prompt per surface), and `cmux read-screen` per stopped agent. Per candidate: `id` (surface UUID), `title` (workspace and agent), `project` (cwd), `provider` (agent), `status` (`idle`, `needsInput`, `unknown`, `exited`), `idle_min`, `pending_interaction` (`needsInput`), `last_agent_msg` (bottom of its screen), `user_min_ago`, and the review fields. `dropped` counts what was excluded and why; `coverage: partial` means some session, screen, or input-history data is incomplete, with details in `errors`.
 
-Memory follows `review_key` (provider and session), while `id` remains the current surface UUID for commands and `--picked`. New conversations get fresh history; moving the same session retains its history. Always supply `--scan` when logging. Old surface-only log entries remain readable but are not assigned to an unknown conversation.
+Memory follows `review_key` (provider and session), while `id` remains the current surface UUID for commands and `--picked`. New conversations get fresh history; moving the same session retains its history. Supply the original `--scan` when creating a review. Old surface-only log entries remain readable but are not assigned to an unknown conversation.
+
+`input_history_known: false` means recent human input cannot be verified. Such candidates remain visible but are not suggested. Missing or malformed input history makes coverage partial; read `errors` and do not act on affected candidates.
 
 ## Read one agent
 
@@ -41,7 +43,7 @@ cmux read-screen --surface <uuid> --lines 20   # still stopped, still the same p
 python3 scan.py                                # the surface must not be in skipped_user_recent
 ```
 
-Confirm the candidate still has the same `session` and use its current surface ID. If it is working or the operator wrote within 3 minutes, do nothing and log `leave` with the reason.
+Confirm the candidate still has the same `session`, `input_history_known: true`, and the same prompt; use its current surface ID. If it is working, absent, recently contacted, unreadable, or changed, do nothing and append `outcome --status skipped` to the original review. Keep its run number; the recheck scan may no longer contain the target.
 
 ## Act (manual stage: only after the operator says yes)
 
@@ -64,12 +66,23 @@ cmux read-screen --surface <uuid> --lines 20   # confirm the agent picked it up
 - Touch bb. You watch cmux only.
 - Type into a surface the operator wrote to in the last 3 minutes.
 
-## Log
+## Record the proposal and outcome
+
+Before asking for approval, save the review and exact proposed message, prompt response, or resume command. For `leave`, omit `--proposed-action`.
 
 ```bash
 python3 log.py run --picked <uuid> --title "..." --decision unblock|leave|wait_for_david|deny \
-  --seen "..." --reason "..." [--action "<message actually sent>"] [--rule Qnn] \
+  --seen "..." --reason "..." [--proposed-action "<exact unsent action>"] [--rule Qnn] \
   --candidates N --skipped N --scan <scan path from scan.py>
 ```
 
-Then one short line in your own terminal: what you reviewed, what you decided, why.
+Keep the returned run number. After approval and recheck, append what actually happened:
+
+```bash
+python3 log.py outcome --run N --status sent --detail "<actual input result>"
+# Use failed or skipped when appropriate. --action records approved text that changed.
+python3 log.py outcome --run N --status skipped --detail "<why>" --scan <recheck scan path>
+python3 log.py confirm --run N   # once after sending; reads cmux, never types
+```
+
+Successful key delivery is only `sent`. `confirm` counts a resume only when the same agent session is observed `running` in an open terminal. An exited, idle, missing, or unreadable session stays unconfirmed; do not poll or resend to force confirmation. New attempts need a new review. Then one short line with the actual outcome.

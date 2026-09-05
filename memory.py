@@ -9,6 +9,7 @@ PRIVATE = HERE / "private"  # gitignored: operator rules, review memory, saved s
 LOG = PRIVATE / "log.jsonl"
 SCANS = PRIVATE / "scans"
 DECISIONS = ("unblock", "leave", "wait_for_david", "deny")
+OUTCOMES = ("sent", "queued", "failed", "skipped")
 RECHECK_SECONDS = 3600
 SPOT_CHECK_CHANCE = 0.0  # Q27: disabled during manual fine-tuning.
 
@@ -25,6 +26,32 @@ def effective_decision(row):
     return correction.get("decision") or {"Q20": "leave", "Q21": "unblock"}.get(correction.get("rule"))
 
 
+def apply_outcome(review, event):
+    """Fold an action event without creating a review or moving its cooldown."""
+    allowed = {"none": {"skipped"}, "proposed": set(OUTCOMES),
+               "sent": {"sent", "failed", "resumed"}, "queued": {"queued", "sent", "failed", "resumed"}}
+    before, after = review.get("action_status", "unknown"), event["status"]
+    if after not in allowed.get(before, set()):
+        raise ValueError(f"cannot change action from {before} to {after}; start a new review for a new attempt")
+    dt.datetime.fromisoformat(event["ts"])
+    if not isinstance(event.get("detail"), str) or not event["detail"].strip():
+        raise ValueError("an outcome needs its observed result")
+    if after == "resumed":
+        observed = event.get("observation") or {}
+        if not isinstance(observed, dict):
+            raise ValueError("invalid resume observation")
+        app = review.get("app")
+        same_target = (observed.get("review_key") == review.get("review_key") and bool(review.get("review_key"))
+                       if app == "cmux" else observed.get("id") == review["picked"])
+        running_status = {"bb": "active", "cmux": "running"}.get(app)
+        if not running_status or observed.get("status") != running_status or not same_target:
+            raise ValueError("a confirmed resume needs a running observation of the reviewed agent")
+        dt.datetime.fromisoformat(observed["observed_at"])
+    review.update(action_status=after, outcome=event)
+    if event.get("action") is not None:
+        review["action"] = event["action"]
+
+
 def read(text=None):
     if text is None:
         text = LOG.read_text() if LOG.exists() else ""
@@ -35,7 +62,9 @@ def read(text=None):
         try:
             row = json.loads(line)
             run = row["run"]
-            if row.get("kind") == "override":
+            if row.get("kind") == "outcome":
+                apply_outcome(runs[run], row)
+            elif row.get("kind") == "override":
                 if row["decision"] not in DECISIONS:
                     raise ValueError("invalid correction")
                 runs[run]["david_override"] = row
@@ -44,6 +73,8 @@ def read(text=None):
                     raise ValueError("invalid run")
                 row["picked"]
                 dt.datetime.fromisoformat(row["ts"])
+                if row.get("action_status", "unknown") not in {"none", "proposed", "unknown"}:
+                    raise ValueError("action results must follow the original review")
                 runs[run] = row
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"log.jsonl line {number}: invalid record") from error
@@ -82,8 +113,10 @@ def rank(candidates, runs, now, seed):
                 reason = "needs_review"
             else:
                 reason = "leave_expired" if elapsed >= RECHECK_SECONDS else "leave_cooldown"
+        if row.get("input_history_known") is False:
+            reason = "input_history_unknown"
         row.update(history=previous or {"pick_count": 0}, changed_since_review=changed,
-                   review_eligible=reason != "leave_cooldown", eligibility_reason=reason,
+                   review_eligible=reason not in {"leave_cooldown", "input_history_unknown"}, eligibility_reason=reason,
                    review_age_min=round(elapsed / 60, 2) if elapsed is not None else None,
                    recheck_in_sec=max(0, RECHECK_SECONDS - elapsed) if reason == "leave_cooldown" else 0,
                    spot_check=False)
