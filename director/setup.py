@@ -6,7 +6,7 @@ import shutil
 import sys
 
 
-HERE = pathlib.Path(__file__).resolve().parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXAMPLES = {
     "what.md": """# What to do
 
@@ -54,7 +54,7 @@ def main():
     print(f"Requirements OK: macOS, Python {sys.version.split()[0]}, {args.app} CLI.")
 
     try:
-        judgment = HERE / "private" / "judgment"
+        judgment = ROOT / "private" / "judgment"
         judgment.mkdir(parents=True, exist_ok=True)
         for name, text in EXAMPLES.items():
             path = judgment / name

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-import bb_app
+from director import bb_app
 
 NOW = 1_800_000_000
 
@@ -49,7 +49,7 @@ class ScanTests(unittest.TestCase):
         self.assertNotEqual(before, bb_app.state(thread(status="error"), []))
         self.assertNotEqual(before, bb_app.state(thread(hasPendingInteraction=True), []))
 
-    @patch("bb_app.bb", return_value=[])
+    @patch("director.bb_app.bb", return_value=[])
     def test_exclusions_and_old_threads(self, bb):
         rows = [thread("self"), thread("active", status="active"), thread("starting", status="starting"),
                 thread("stopping", status="stopping"), thread("hidden", visibility="hidden"),
@@ -64,7 +64,7 @@ class ScanTests(unittest.TestCase):
     def test_user_grace_boundary_without_rounding(self):
         for age, excluded in [(179.99, True), (180, False), (180.01, False)]:
             events = [event("client/turn/requested", at=(NOW - age) * 1000, initiator="user")]
-            with self.subTest(age=age), patch("bb_app.bb", return_value=events):
+            with self.subTest(age=age), patch("director.bb_app.bb", return_value=events):
                 rows, skipped, errors = bb_app.collect([thread()], NOW, "self", "host")
                 self.assertEqual(bool(skipped), excluded)
                 self.assertEqual(bool(rows), not excluded)
@@ -73,7 +73,7 @@ class ScanTests(unittest.TestCase):
     def test_agent_messages_do_not_count_as_user_typing(self):
         for data in ({"initiator": "system"}, {"initiator": "agent"},
                      {"initiator": "user", "senderThreadId": "director"}):
-            with self.subTest(data=data), patch("bb_app.bb", return_value=[event("client/turn/requested", **data)]):
+            with self.subTest(data=data), patch("director.bb_app.bb", return_value=[event("client/turn/requested", **data)]):
                 rows, skipped, _ = bb_app.collect([thread()], NOW, "self", "host")
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(skipped, [])
@@ -83,7 +83,7 @@ class ScanTests(unittest.TestCase):
             if args[2] == "failed":
                 raise RuntimeError("failed")
             return []
-        with patch("bb_app.bb", side_effect=bb):
+        with patch("director.bb_app.bb", side_effect=bb):
             rows, _, errors = bb_app.collect([thread("failed"), thread("healthy")], NOW, "self", "host")
         self.assertEqual([r["id"] for r in rows], ["healthy"])
         self.assertEqual(errors, [{"id": "failed", "error": "RuntimeError", "detail": "failed"}])

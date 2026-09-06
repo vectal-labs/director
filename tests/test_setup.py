@@ -13,8 +13,10 @@ class SetupTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        scripts = self.root / "director"
+        scripts.mkdir()
         for name in ("setup.py", "cmux_app.py"):
-            shutil.copy(Path(__file__).with_name(name), self.root / name)
+            shutil.copy(Path(__file__).resolve().parents[1] / "director" / name, scripts / name)
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(("BB_", "CMUX_"))}
         self.env["PATH"] = str(self.root)
 
@@ -24,7 +26,7 @@ class SetupTests(unittest.TestCase):
         path.chmod(0o755)
 
     def setup(self, app):
-        return subprocess.run([sys.executable, str(self.root / "setup.py"), "--app", app],
+        return subprocess.run([sys.executable, str(self.root / "director" / "setup.py"), "--app", app],
                               cwd=self.root.parent, env=self.env, capture_output=True, text=True)
 
     def test_fresh_setup_and_rerun_preserve_private_data(self):

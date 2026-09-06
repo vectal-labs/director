@@ -3,7 +3,7 @@ import json
 import time
 import unittest
 
-import test_cli
+from tests import test_cli
 
 
 class ScanSafetyTests(unittest.TestCase):

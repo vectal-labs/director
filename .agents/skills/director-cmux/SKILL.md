@@ -17,8 +17,8 @@ Your own surface is `$CMUX_SURFACE_ID` in workspace `$CMUX_WORKSPACE_ID`; `cmux 
 ## Scan (read-only)
 
 ```bash
-python3 scan.py            # stopped and exited agents in open cmux terminals, ranked; saves private/scans/<time>.json
-python3 scan.py --hours 6  # only sessions updated in the last 6 hours
+python3 director/scan.py            # stopped and exited agents in open cmux terminals, ranked; saves private/scans/<time>.json
+python3 director/scan.py --hours 6  # only sessions updated in the last 6 hours
 ```
 
 Sources: `cmux sessions list` (hook-recorded sessions), `cmux tree --all --id-format both --json` (open terminals across all windows), `~/.cmuxterm/events.jsonl` (last prompt per surface), and `cmux read-screen` per stopped agent. Per candidate: `id` (surface UUID), `title` (workspace and agent), `project` (cwd), `provider` (agent), `status` (`idle`, `needsInput`, `unknown`, `exited`), `idle_min`, `pending_interaction` (`needsInput`), `last_agent_msg` (bottom of its screen), `user_min_ago`, and the review fields. `dropped` counts what was excluded and why; `coverage: partial` means some session, screen, or input-history data is incomplete, with details in `errors`.
@@ -40,7 +40,7 @@ Read the agent's repo (`cwd`): its `AGENTS.md` and `docs/adr/` before deciding.
 
 ```bash
 cmux read-screen --surface <uuid> --lines 20   # still stopped, still the same prompt?
-python3 scan.py                                # the surface must not be in skipped_user_recent
+python3 director/scan.py                                # the surface must not be in skipped_user_recent
 ```
 
 Confirm the candidate still has the same `session`, `input_history_known: true`, and the same prompt; use its current surface ID. If it is working, absent, recently contacted, unreadable, or changed, do nothing and append `outcome --status skipped` to the original review. Keep its run number; the recheck scan may no longer contain the target.
@@ -71,7 +71,7 @@ cmux read-screen --surface <uuid> --lines 20   # confirm the agent picked it up
 Before asking for approval, save the review and exact proposed message, prompt response, or resume command. For `leave`, omit `--proposed-action`.
 
 ```bash
-python3 log.py run --picked <uuid> --title "..." --decision unblock|leave|wait_for_david|deny \
+python3 director/log.py run --picked <uuid> --title "..." --decision unblock|leave|wait_for_david|deny \
   --seen "..." --reason "..." [--proposed-action "<exact unsent action>"] [--rule Qnn] \
   --candidates N --skipped N --scan <scan path from scan.py>
 ```
@@ -79,10 +79,10 @@ python3 log.py run --picked <uuid> --title "..." --decision unblock|leave|wait_f
 Keep the returned run number. After approval and recheck, append what actually happened:
 
 ```bash
-python3 log.py outcome --run N --status sent --detail "<actual input result>"
+python3 director/log.py outcome --run N --status sent --detail "<actual input result>"
 # Use failed or skipped when appropriate. --action records approved text that changed.
-python3 log.py outcome --run N --status skipped --detail "<why>" --scan <recheck scan path>
-python3 log.py confirm --run N   # once after sending; reads cmux, never types
+python3 director/log.py outcome --run N --status skipped --detail "<why>" --scan <recheck scan path>
+python3 director/log.py confirm --run N   # once after sending; reads cmux, never types
 ```
 
 Successful key delivery is only `sent`. `confirm` counts a resume only when the same agent session is observed `running` in an open terminal. An exited, idle, missing, or unreadable session stays unconfirmed; do not poll or resend to force confirmation. New attempts need a new review. Then one short line with the actual outcome.

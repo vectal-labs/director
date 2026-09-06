@@ -4,8 +4,8 @@ import json
 import pathlib
 import random
 
-HERE = pathlib.Path(__file__).parent
-PRIVATE = HERE / "private"  # gitignored: operator rules, review memory, saved scans
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+PRIVATE = ROOT / "private"  # gitignored: operator rules, review memory, saved scans
 LOG = PRIVATE / "log.jsonl"
 SCANS = PRIVATE / "scans"
 DECISIONS = ("unblock", "leave", "wait_for_david", "deny")

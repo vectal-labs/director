@@ -44,8 +44,10 @@ class CliTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        scripts = self.root / "director"
+        scripts.mkdir()
         for name in SCRIPTS:
-            shutil.copy(Path(__file__).with_name(name), self.root / name)
+            shutil.copy(Path(__file__).resolve().parents[1] / "director" / name, scripts / name)
         for app in ("bb", "cmux"):
             (self.root / app).write_text(FAKE)
             (self.root / app).chmod(0o755)
@@ -68,7 +70,7 @@ class CliTests(unittest.TestCase):
         return [json.loads(line)[0] for line in self.calls.read_text().splitlines()] if self.calls.exists() else []
 
     def cli(self, script, *args, check=True, env=None):
-        return subprocess.run([sys.executable, str(self.root / script), *args], env=env or self.env,
+        return subprocess.run([sys.executable, str(self.root / "director" / script), *args], env=env or self.env,
                               cwd=self.root, capture_output=True, text=True, check=check)
 
     def scan(self, *args, **kw):

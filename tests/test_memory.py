@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-import memory
+from director import memory
 
 NOW = 1_800_000_000
 
@@ -96,7 +96,7 @@ class MemoryTests(unittest.TestCase):
             self.assertEqual(selection["chance"], 0)
             self.assertFalse(any(row["spot_check"] for row in rows))
 
-    @patch("memory.SPOT_CHECK_CHANCE", 0.2)
+    @patch("director.memory.SPOT_CHECK_CHANCE", 0.2)
     def test_seed_replays_both_draw_and_weighted_choice(self):
         rows = [candidate(), candidate("b")]
         one, two = copy.deepcopy(rows), copy.deepcopy(rows)
@@ -104,7 +104,7 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(one, two)
         self.assertEqual(sum(r["spot_check"] for r in one), 1)
 
-    @patch("memory.SPOT_CHECK_CHANCE", 0.2)
+    @patch("director.memory.SPOT_CHECK_CHANCE", 0.2)
     def test_about_twenty_percent_of_runs_are_random(self):
         count = 0
         for seed in range(2000):
@@ -114,7 +114,7 @@ class MemoryTests(unittest.TestCase):
             self.assertLessEqual(sum(r["spot_check"] for r in rows), 1)
         self.assertTrue(340 < count < 460, count)
 
-    @patch("memory.SPOT_CHECK_CHANCE", 0.2)
+    @patch("director.memory.SPOT_CHECK_CHANCE", 0.2)
     def test_random_selection_favors_less_recent_reviews(self):
         reviews = [review("recent", decision="unblock", age=60),
                    review("older", decision="unblock", age=86400, run=2)]

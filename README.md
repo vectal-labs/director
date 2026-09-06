@@ -11,7 +11,7 @@ Director helps keep your coding agents moving in bb or cmux. It reviews stopped 
 ```bash
 git clone https://github.com/vectal-labs/director.git ~/code/director
 cd ~/code/director
-python3 setup.py --app bb  # or --app cmux
+python3 director/setup.py --app bb  # or --app cmux
 ```
 
 <details>

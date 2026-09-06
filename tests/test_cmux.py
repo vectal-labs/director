@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-import cmux_app
+from director import cmux_app
 
 NOW = 1_800_000_000
 SCREEN = "╭──────╮\n│ Should I use Postgres or SQLite?  │\n╰──────╯\n❯ \n"
@@ -121,7 +121,7 @@ class CmuxTests(unittest.TestCase):
                 return {"windows": [{"workspaces": [{"id": "ws-1", "title": "director demo", "panes": [
                     {"surfaces": [{"id": "SURF-A", "type": "terminal"}]}]}]}]}
             return SCREEN
-        with patch("cmux_app.cmux", side_effect=fake):
+        with patch("director.cmux_app.cmux", side_effect=fake):
             rows, skipped, errors, extras = cmux_app.scan("SELF", NOW)
         self.assertEqual([r["id"] for r in rows], ["SURF-A"])
         self.assertEqual(skipped, [])
