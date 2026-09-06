@@ -14,14 +14,17 @@ It watches only the app it was launched in. A Director in bb never touches cmux,
 
 ## Setup
 
-Requirements: Python 3, plus `bb` on `PATH` for bb or the cmux app for cmux (its CLI is found on `PATH` or inside `/Applications/cmux.app`). No dependencies.
+Requirements: macOS, Python 3.9+, Git, and either `bb` on `PATH` or cmux installed in `/Applications` (or its CLI on `PATH`). No Python packages to install. Tested with Python 3.9.6 and 3.14.6.
 
 ```bash
 git clone <this repo> ~/code/director
-mkdir -p ~/code/director/private/judgment
+cd ~/code/director
+python3 setup.py --app bb  # use --app cmux for cmux
 ```
 
-Write your rules into `private/judgment/what.md`, `how.md`, and `limits.md`, and keep every question you answer in `private/judgment/qa.md`, numbered Qnn. The Director reads these before acting and refuses to unblock anything without them.
+Setup checks macOS, Python, and the chosen CLI. It creates example rules in `private/judgment/what.md`, `how.md`, and `limits.md`, plus `qa.md` for your answers and corrections. Existing files are kept. You can run setup again at any time.
+
+Read and edit the examples before starting. Keep every question you answer in `qa.md`, numbered Qnn. Your rules and history stay in gitignored `private/`; share the Git repo with teammates so each person starts with their own files.
 
 cmux only: agents are visible through cmux's hooks. Run `cmux hooks setup` once so Claude Code, Codex, Pi, and the rest report their state.
 
