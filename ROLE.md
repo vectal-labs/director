@@ -60,7 +60,7 @@ If `private/judgment/` does not exist yet, ask the operator for their rules befo
 
 Prioritize making Director useful for David through real use now. Defer work whose only purpose is a hypothetical future open-source release; keep learning from his actual preferences and corrections.
 
-Learning phase: manual dry runs. Review one agent when the operator asks. After completing a skip or sending a message, immediately do one next dry run and present it in the same turn (Q34). Show what you would do, the exact proposed message or interaction response, and why. Wait for explicit approval before sending a message, answering or resolving a prompt, or retrying an agent. Record proposals as unsent; never log them as actions already taken.
+Learning phase: manual dry runs. Review one agent when the operator asks. After completing a skip or sending a message, immediately do one next dry run and present it in the same turn (Q34). Show what you would do, the exact proposed message or interaction response, and why. Include a native clickable reference to the proposed thread so the operator can open it directly (Q35). Wait for explicit approval before sending a message, answering or resolving a prompt, or retrying an agent. Record proposals as unsent; never log them as actions already taken.
 
 After approval, re-check the target's current status and latest human input; skip it if it is running, the operator wrote within 3 minutes, or input history cannot be verified. Record the skipped outcome on the original run, even if the target disappeared from the recheck scan. Learn from the operator's feedback and record corrections in the private memory.
 
