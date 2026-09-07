@@ -5,14 +5,17 @@ import math
 import pathlib
 import random
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
-PRIVATE = ROOT / "private"  # gitignored: operator rules, review memory, saved scans
-LOG = PRIVATE / "log.jsonl"
-SCANS = PRIVATE / "scans"
+try:
+    from . import preferences
+    from .storage import ROOT, PROFILE, STATE, LEGACY
+except ImportError:
+    import preferences
+    from storage import ROOT, PROFILE, STATE, LEGACY
+
+LOG = STATE / "log.jsonl"
+SCANS = STATE / "scans"
 DECISIONS = ("unblock", "leave", "wait_for_david", "deny")
 OUTCOMES = ("sent", "queued", "failed", "skipped")
-RECHECK_SECONDS = 3600
-SPOT_CHECK_CHANCE = 0.0  # Q27: disabled during manual fine-tuning.
 LESSON_KINDS = ("general_preference", "project_decision", "temporary_instruction", "exception")
 
 
@@ -65,7 +68,7 @@ def validate_lesson(lesson, bound=False):
             raise ValueError("stored lesson needs an app and a stable scope target")
 
 
-def new_lesson(value, review):
+def new_lesson(value, review, existing_ids=()):
     """Bind scope to recorded evidence, never a model-supplied target or title."""
     validate_lesson(value)
     lesson = dict(value, scope=value.get("scope", "thread"))
@@ -81,7 +84,10 @@ def new_lesson(value, review):
             target = review.get("review_key") if app == "cmux" else review["picked"]
         if not target:
             raise ValueError("the original review lacks a verified scope target; record a new review with --scan")
-    lesson.update(id=f"{review['run']}.{len(review.get('corrections', [])) + 1}", app=app, target=target)
+    number = len(review.get("corrections", [])) + 1
+    while f"{review['run']}.{number}" in existing_ids:
+        number += 1
+    lesson.update(id=f"{review['run']}.{number}", app=app, target=target)
     validate_lesson(lesson, bound=True)
     return lesson
 
@@ -100,15 +106,16 @@ def find_lesson(runs, lesson_id):
     raise ValueError(f"no lesson {lesson_id}")
 
 
-def attach_lessons(candidates, runs, now, app):
+def attach_lessons(candidates, runs, now, app, records=None):
     """Select possible precedents; the model must still check applies_when."""
-    active = []
-    for review, correction in lesson_corrections(runs):
-        lesson = correction["lesson"]
-        if correction.get("lesson_ended") or (lesson.get("expires_at") and now >= lesson_deadline(lesson["expires_at"])):
-            continue
-        active.append({**lesson, "david": correction["david"], "run": review["run"],
-                       "rule": correction.get("rule"), "recorded_at": correction.get("ts")})
+    if records is None:
+        records = [{**correction["lesson"], "david": correction["david"], "run": review["run"],
+                    "rule": correction.get("rule"), "recorded_at": correction.get("ts"),
+                    "lesson_ended": correction.get("lesson_ended")}
+                   for review, correction in lesson_corrections(runs)]
+    active = [{key: value for key, value in lesson.items() if key != "lesson_ended"}
+              for lesson in records if not lesson.get("lesson_ended")
+              and not (lesson.get("expires_at") and now >= lesson_deadline(lesson["expires_at"]))]
     for candidate in candidates:
         matches = []
         for lesson in active:
@@ -122,7 +129,7 @@ def attach_lessons(candidates, runs, now, app):
 
 def read_priorities(path=None):
     """Load optional personal priorities; reject mistakes instead of ignoring them."""
-    path = pathlib.Path(path) if path is not None else PRIVATE / "priorities.json"
+    path = pathlib.Path(path) if path is not None else PROFILE / "priorities.json"
     try:
         config = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -157,12 +164,13 @@ def timestamp():
     return dt.datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def effective_decision(row):
+def effective_decision(row, settings=None):
     correction = row.get("david_override")
     if not correction:
         return row["decision"]
-    # These two legacy corrections predate the explicit decision field (private/judgment/qa.md).
-    return correction.get("decision") or {"Q20": "leave", "Q21": "unblock"}.get(correction.get("rule"))
+    # Some historical corrections only recorded a rule ID. Its meaning belongs to the profile.
+    decisions = (settings or preferences.DEFAULTS).get("legacy_override_decisions", {})
+    return correction.get("decision") or decisions.get(correction.get("rule"))
 
 
 def apply_outcome(review, event):
@@ -236,7 +244,7 @@ def read(text=None):
     return list(runs.values())
 
 
-def histories(runs):
+def histories(runs, settings=None):
     result = {}
     for row in runs:
         picked = row.get("review_key") or row["picked"]
@@ -244,15 +252,18 @@ def histories(runs):
         result[picked] = {
             "pick_count": count, "last_run": row["run"],
             "last_review_at": row.get("reviewed_at", row["ts"]),
-            "last_decision": effective_decision(row),
+            "last_decision": effective_decision(row, settings),
             "last_override": row.get("david_override"),
             "reviewed_state": row.get("reviewed_state"),
         }
     return result
 
 
-def rank(candidates, runs, now, seed, priorities=None):
-    history = histories(runs)
+def rank(candidates, runs, now, seed, priorities=None, settings=None):
+    settings = preferences.validate(settings or {})
+    recheck_seconds = settings["recheck_seconds"]
+    spot_check_chance = settings["spot_check_chance"]
+    history = histories(runs, settings)
     for row in candidates:
         row.update(priority(row, priorities or {}))
         previous = history.get(row.get("review_key") or row["id"])
@@ -268,13 +279,13 @@ def rank(candidates, runs, now, seed, priorities=None):
             elif previous["last_decision"] != "leave":
                 reason = "needs_review"
             else:
-                reason = "leave_expired" if elapsed >= RECHECK_SECONDS else "leave_cooldown"
+                reason = "leave_expired" if elapsed >= recheck_seconds else "leave_cooldown"
         if row.get("input_history_known") is False:
             reason = "input_history_unknown"
         row.update(history=previous or {"pick_count": 0}, changed_since_review=changed,
                    review_eligible=reason not in {"leave_cooldown", "input_history_unknown"}, eligibility_reason=reason,
                    review_age_min=round(elapsed / 60, 2) if elapsed is not None else None,
-                   recheck_in_sec=max(0, RECHECK_SECONDS - elapsed) if reason == "leave_cooldown" else 0,
+                   recheck_in_sec=max(0, recheck_seconds - elapsed) if reason == "leave_cooldown" else 0,
                    spot_check=False)
         # Linear age in minutes, capped at one day; unseen threads get the cap.
         row["random_weight"] = max(1, min(1440, elapsed / 60)) if elapsed is not None else 1440
@@ -284,10 +295,10 @@ def rank(candidates, runs, now, seed, priorities=None):
     eligible = [r for r in candidates if r["review_eligible"]]
     rng = random.Random(seed)
     draw = rng.random()
-    selection = {"seed": seed, "draw": draw, "chance": SPOT_CHECK_CHANCE,
+    selection = {"seed": seed, "draw": draw, "chance": spot_check_chance,
                  "mode": "none", "suggested": None, "eligible_count": len(eligible)}
     if eligible:
-        spot = draw < SPOT_CHECK_CHANCE
+        spot = draw < spot_check_chance
         picked = rng.choices(eligible, weights=[r["random_weight"] for r in eligible])[0] if spot else eligible[0]
         picked["spot_check"] = spot
         selection.update(mode="spot_check" if spot else "priority", suggested=picked["id"])

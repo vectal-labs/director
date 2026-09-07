@@ -36,18 +36,28 @@ For cmux, the initial launcher supports Claude Code and Codex. Run `cmux hooks s
 ## Files and updates
 
 - `~/.local/bin/director`: the command launcher.
-- `~/.local/share/director/private/`: rules, configuration, launch ownership, logs, and scans.
+- `~/.local/share/director/profile/`: personal teaching, rules, behavior settings, priorities, and reusable lessons.
+- `~/.local/share/director/state/`: review history, scans, temporary lessons, and local installation state.
+- `~/.local/share/director/state/config.json`: selected app, provider, model, and machine/project IDs.
+- `~/.local/share/director/state/launches.json`: ownership records for sessions and projects created by this installation.
+- `~/.local/share/director/private/`: unrelated private notes and compatibility links for older sessions.
 - `~/.local/share/director/releases/`: installed program versions.
 - `~/.local/share/director/current`: the active release link.
 - `~/.local/share/director/install.json`: installed file and shell-change ownership.
 
-The install folder provides stable links to the role, scripts, and skills. This lets bb keep the same workspace and write private data across updates. Set `DIRECTOR_HOME` before installation to use a different, empty folder.
+The install folder provides stable links to the role, scripts, and skills. Every release reads the same personal profile and state. Setup creates missing starter rules and settings without replacing your teaching. Set `DIRECTOR_HOME` before installation to use a different, empty folder.
 
 The installer adds a marked PATH block to `.zshrc` or `.bash_profile` when needed. Open a new terminal afterward, or use `~/.local/bin/director` immediately. Symlinked profiles and other shells receive manual PATH instructions.
 
 Downloads come from GitHub Releases over HTTPS. SHA256 checksums detect damaged or mismatched downloads; they are not a signature from a separate trust authority. Updates stage a complete release before switching `current`. Old releases remain available to existing sessions. Personal files are preserved.
 
-Existing source checkouts are independent. This installer does not migrate or delete their private data. Copy your rules and history into the installed private folder yourself if needed.
+Existing managed installations migrate known Director files from `private/` into `profile/` and `state/`. Original files are backed up in `state/migration-backup/`. Unrelated notes remain untouched. Conflicting destination files stop migration for review.
+
+Compatibility links keep older Director sessions connected to the same rules and history. Always run management commands through `director`, which uses the current release. Running an older release's setup or lifecycle scripts directly can replace compatibility links; a later migration reports that conflict.
+
+After migration, the installer rejects downgrades to releases that cannot manage `profile/` and `state/`. The current version and personal files remain intact.
+
+Source checkouts are independent. Their `python3 director/setup.py --app bb` (or `--app cmux`) performs the same local migration. The installer never moves data between separate checkouts or installations. Profile transfer is manual; import/export is not implemented.
 
 ## Uninstall
 
@@ -58,7 +68,7 @@ director uninstall --purge   # also delete personal rules and history
 
 Uninstall stops only sessions recorded by this installation. It verifies their app metadata before acting. It removes its launcher, release files, workspace links, and marked PATH changes. If a session cannot be verified or stopped, open the app and resolve the reported issue, then retry. Changed launcher files, workspace links, or release contents are preserved with an error.
 
-With `--purge`, Director also removes its owned bb threads and empty project registration. Other threads in that project must be moved first. Shared apps, cmux hooks, provider authentication, provider chat history, and independently scheduled automations remain under their original owners.
+With `--purge`, Director also removes `profile/`, `state/` (including migration backups), its owned bb threads, and its empty project registration. It removes only recognized compatibility links from `private/`; unrelated notes survive. Other threads in the owned project must be moved first. Shared apps, cmux hooks, provider authentication, provider chat history, and independently scheduled automations remain under their original owners.
 
 To delete retained personal data after a normal uninstall:
 

@@ -106,20 +106,20 @@ class InstallTests(unittest.TestCase):
 
     def personal_data(self):
         files = {
-            "judgment/what.md": "My exact personal rules.\n",
-            "judgment/qa.md": "Q01: My exact answer.\n",
-            "log.jsonl": '{"run": 42, "decision": "leave"}\n',
-            "scans/old.json": '{"saved": "history"}\n',
+            "profile/what.md": "My exact personal rules.\n",
+            "profile/qa.md": "Q01: My exact answer.\n",
+            "state/log.jsonl": '{"run": 42, "decision": "leave", "picked": "bb:thread-a", "ts": "2026-09-01T10:00:00+00:00"}\n',
+            "state/scans/old.json": '{"saved": "history"}\n',
         }
         for relative, contents in files.items():
-            path = self.managed / "private" / relative
+            path = self.managed / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents)
         return files
 
     def assert_personal_data(self, files):
         for relative, contents in files.items():
-            self.assertEqual((self.managed / "private" / relative).read_text(), contents)
+            self.assertEqual((self.managed / relative).read_text(), contents)
 
     def replace_archive(self, version, member):
         archive = self.web / version / f"director-{version}.tar.gz"
@@ -183,7 +183,7 @@ class InstallTests(unittest.TestCase):
         ''')
         (self.tools / "bb").write_text(f"#!{sys.executable}\n" + program)
 
-    def test_fresh_install_exposes_version_skills_and_shared_private_directory(self):
+    def test_fresh_install_exposes_version_skills_and_shared_personal_directories(self):
         self.install()
         result = self.cli("--version")
         self.assert_success(result)
@@ -193,7 +193,8 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.managed / "docs/memory.md").read_text(),
                          (REPO / "docs/memory.md").read_text())
         self.assertTrue((self.managed / "current/.claude/skills/director-bb/SKILL.md").is_file())
-        self.assertEqual((self.managed / "current/private").resolve(), (self.managed / "private").resolve())
+        for name in ("profile", "state", "private"):
+            self.assertEqual((self.managed / "current" / name).resolve(), (self.managed / name).resolve())
         self.assertTrue(os.access(self.binary, os.X_OK))
         self.assertFalse(self.calls.exists(), "file-only installation must not call app CLIs")
 
@@ -222,6 +223,21 @@ class InstallTests(unittest.TestCase):
         self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.1.0"))
         self.assertTrue((self.managed / "releases/v1.0.0/ROLE.md").exists())
         self.assert_personal_data(files)
+        for version in ("v1.0.0", "v1.1.0"):
+            for name in ("profile", "state"):
+                self.assertEqual((self.managed / "releases" / version / name).resolve(),
+                                 (self.managed / name).resolve())
+
+    def test_purge_keeps_unrelated_private_notes(self):
+        self.install()
+        self.personal_data()
+        note = self.managed / "private/brief.md"
+        note.write_text("Unrelated notes must survive even a purge.\n")
+        self.assert_success(self.cli("uninstall", "--purge"))
+        self.assertEqual(note.read_text(), "Unrelated notes must survive even a purge.\n")
+        self.assertFalse((self.managed / "profile").exists())
+        self.assertFalse((self.managed / "state").exists())
+        self.assertFalse(self.binary.exists())
 
     def test_setup_starts_fake_bb_once_and_purge_removes_its_owned_session(self):
         self.install()
@@ -229,10 +245,10 @@ class InstallTests(unittest.TestCase):
         result = self.cli("setup", "--app", "bb", "--provider", "fake-provider",
                           "--model", "fake-model", "--yes")
         self.assert_success(result)
-        config = json.loads((self.managed / "private/config.json").read_text())
+        config = json.loads((self.managed / "state/config.json").read_text())
         self.assertEqual((config["app"], config["provider"], config["model"]),
                          ("bb", "fake-provider", "fake-model"))
-        self.assertTrue((self.managed / "private/judgment/limits.md").exists())
+        self.assertTrue((self.managed / "profile/limits.md").exists())
         self.assert_success(self.cli("start"))
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         starts = [args for args in calls if args[:2] == ["thread", "spawn"]]

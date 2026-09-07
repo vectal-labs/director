@@ -22,6 +22,7 @@ def update(root, version=None):
 def uninstall(root, purge=False):
     data = install.metadata(root)
     install.check_launcher(data)
+    install.repair_managed_links(root)
     # Validate every destructive target before stopping sessions or removing anything.
     for version in data.get("versions", []):
         if not install.VERSION.fullmatch(version):
@@ -30,12 +31,12 @@ def uninstall(root, purge=False):
         if target.is_symlink() or (target.exists() and not target.is_dir()):
             raise ValueError(f"Release path changed outside Director: {target}")
         removing = version in data.get("removing", [])
-        if target.exists() and (not removing or (target / "private").exists() or (target / "private").is_symlink()):
-            install.validate_private_link(target)
+        if target.exists():
+            install.validate_data_links(target, removing=removing)
         expected = data.get("digests", {}).get(version)
         if target.exists() and not removing and (not expected or install.tree_digest(target) != expected):
             raise ValueError(f"Local changes found in {target}. Move those changes out before uninstalling.")
-    if (root / "releases").is_symlink() or (root / "private").is_symlink():
+    if any((root / name).is_symlink() for name in (*install.DATA_DIRS, "releases")):
         raise ValueError("Managed data directories must not be symlinks.")
     current = root / "current"
     if current.exists() or current.is_symlink():
@@ -51,7 +52,8 @@ def uninstall(root, purge=False):
             raise ValueError("Shell profile ownership cannot be verified; leaving the installation intact.")
         if path.exists() and item["block"] not in path.read_text() and data["id"] in path.read_text():
             raise ValueError(f"The Director PATH block in {path} was edited. Restore it before uninstalling.")
-    launch.stop_owned(root, root / "private", purge=purge)
+    install.migrate(root)
+    launch.stop_owned(root, root / "state", purge=purge)
     install.cleanup_staging(root, data)
     for item in data.get("shell", []):
         path = Path(item["path"])
@@ -79,9 +81,14 @@ def uninstall(root, purge=False):
     data.update(installed=False, versions=[], digests={}, shell=[], launcher=None, removing=[])
     install.save(root / "install.json", data)
     if purge:
+        install.cleanup_legacy_aliases(root)
+        for name in ("profile", "state"):
+            path = root / name
+            if path.exists():
+                shutil.rmtree(path)
         private = root / "private"
-        if private.exists():
-            shutil.rmtree(private)
+        if private.exists() and not any(private.iterdir()):
+            private.rmdir()
         (root / "install.json").unlink()
         (root / ".lock").unlink(missing_ok=True)
         if not any(root.iterdir()):
@@ -90,6 +97,6 @@ def uninstall(root, purge=False):
             print(f"Unrecognized files remain in {root}; they were kept.")
         print("Director and its personal rules, logs, and scans were removed.")
     else:
-        print(f"Director removed. Personal data kept at {root / 'private'}.")
+        print(f"Director removed. Personal profile kept at {root / 'profile'}; history and installation settings at {root / 'state'}.")
         print("To remove that data later, rerun the installer with --uninstall --purge.")
     print("Shared bb/cmux installations, hooks, and provider chat history are managed by those apps.")

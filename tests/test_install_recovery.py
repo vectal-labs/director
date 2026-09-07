@@ -1,5 +1,6 @@
 """Recover interrupted local lifecycle operations without touching user apps or data."""
 import importlib.util
+import json
 import os
 import shlex
 from pathlib import Path
@@ -19,6 +20,9 @@ SPEC = importlib.util.spec_from_file_location("recovery_lifecycle", REPO / "dire
 lifecycle = importlib.util.module_from_spec(SPEC)
 with patch.dict(sys.modules, {"install": install, "launch": launch}):
     SPEC.loader.exec_module(lifecycle)
+LEGACY_SPEC = importlib.util.spec_from_file_location("legacy_install", REPO / "tests/fixtures/legacy_install.py")
+legacy_install = importlib.util.module_from_spec(LEGACY_SPEC)
+LEGACY_SPEC.loader.exec_module(legacy_install)
 
 
 class InstallRecoveryTests(unittest.TestCase):
@@ -93,7 +97,7 @@ class InstallRecoveryTests(unittest.TestCase):
     def test_failed_update_copy_keeps_previous_release_and_history_then_retries(self):
         self.installed()
         history = self.managed / "private/log.jsonl"
-        history.write_text('{"run": 12, "reason": "keep my history"}\n')
+        history.write_text('{"run": 12, "reason": "keep my history", "decision": "leave", "picked": "bb:thread-a", "ts": "2026-09-01T10:00:00+00:00"}\n')
         contents = history.read_bytes()
         copytree = install.shutil.copytree
 
@@ -112,6 +116,93 @@ class InstallRecoveryTests(unittest.TestCase):
         self.activate("v1.1.0")
         self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.1.0"))
         self.assertEqual(history.read_bytes(), contents)
+
+    def test_upgrade_migrates_legacy_release_and_keeps_its_data_link_usable(self):
+        data = self.installed()
+        release = self.managed / "releases/v1.0.0"
+        # Model an installed release from before the profile/state layout.
+        for name in ("profile", "state"):
+            (release / name).unlink()
+        (release / "director/storage.py").unlink()
+        data["digests"]["v1.0.0"] = install.tree_digest(release)
+        install.save(self.managed / "install.json", data)
+        legacy = self.managed / "private"
+        (legacy / "judgment").mkdir()
+        (legacy / "judgment/qa.md").write_text("Q01: Keep this teaching.\n")
+        (legacy / "log.jsonl").write_text('{"run": 12, "decision": "leave", "picked": "bb:thread-a", "ts": "2026-09-01T10:00:00+00:00"}\n')
+        self.activate("v1.1.0")
+        self.assertEqual((self.managed / "profile/qa.md").read_text(), "Q01: Keep this teaching.\n")
+        with (release / "private/log.jsonl").open("a") as stream:
+            stream.write('{"run": 13, "decision": "leave", "picked": "bb:thread-a", "ts": "2026-09-01T10:00:00+00:00"}\n')
+        self.assertIn('"run": 13', (self.managed / "state/log.jsonl").read_text())
+        lifecycle.uninstall(self.managed)
+        self.assertTrue((self.managed / "profile/qa.md").is_file())
+
+    def test_actual_legacy_installer_upgrades_new_commands_without_splitting_data(self):
+        with legacy_install.locked(self.managed, create=True):
+            data = legacy_install.activate(self.managed, self.sources["v1.0.0"])
+            legacy_install.install_launcher(self.managed, data)
+        release = self.managed / "releases/v1.0.0"
+        self.assertFalse((release / "profile").exists())
+        self.assertFalse((release / "state").exists())
+        legacy = self.managed / "private"
+        (legacy / "judgment").mkdir()
+        (legacy / "judgment/qa.md").write_text("Q01: Preserve the original teaching.\n")
+        record = {"run": 12, "ts": "2026-09-01T10:00:00+00:00", "picked": "bb:thread-a", "decision": "leave"}
+        (legacy / "log.jsonl").write_text(json.dumps(record) + "\n")
+        result = subprocess.run([sys.executable, str(release / "director/log.py"), "stats"],
+                                cwd=self.base, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("runs 1", result.stdout)
+        for name in ("profile", "state"):
+            self.assertTrue((release / name).is_symlink())
+            self.assertEqual((release / name).resolve(), (self.managed / name).resolve())
+        self.assertEqual((self.managed / "profile/qa.md").read_text(), "Q01: Preserve the original teaching.\n")
+        self.assertEqual(json.loads((self.managed / "state/log.jsonl").read_text()), record)
+        lifecycle.uninstall(self.managed)
+        self.assertTrue((self.managed / "profile/qa.md").is_file())
+
+    def test_legacy_link_repair_preserves_changed_data_and_creates_no_partial_links(self):
+        with legacy_install.locked(self.managed, create=True):
+            legacy_install.activate(self.managed, self.sources["v1.0.0"])
+        release = self.managed / "releases/v1.0.0"
+        (release / "state").mkdir()
+        local = release / "state/keep.md"
+        local.write_text("This belongs to the user.\n")
+        with self.assertRaisesRegex(ValueError, "state data link"):
+            install.repair_managed_links(self.managed)
+        self.assertEqual(local.read_text(), "This belongs to the user.\n")
+        self.assertFalse((release / "profile").is_symlink())
+        self.assertFalse((release / "profile").exists())
+
+    @unittest.skipUnless(sys.platform == "darwin", "installer supports macOS")
+    def test_actual_legacy_launcher_can_uninstall_through_new_lifecycle(self):
+        with legacy_install.locked(self.managed, create=True):
+            data = legacy_install.activate(self.managed, self.sources["v1.0.0"])
+            legacy_install.install_launcher(self.managed, data)
+        legacy = self.managed / "private/judgment"
+        legacy.mkdir()
+        (legacy / "qa.md").write_text("Keep my teaching after uninstall.\n")
+        result = subprocess.run([str(self.binary), "uninstall"], cwd=self.base,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.managed / "profile/qa.md").read_text(), "Keep my teaching after uninstall.\n")
+        self.assertFalse(self.binary.exists())
+        self.assertFalse((self.managed / "releases").exists())
+
+    def test_legacy_downgrade_preserves_current_release_and_teaching(self):
+        self.installed()
+        teaching = self.managed / "profile/qa.md"
+        teaching.write_text("My teaching stays unchanged.\n")
+        metadata = (self.managed / "install.json").read_bytes()
+        (self.sources["v1.1.0"] / "director/storage.py").unlink()
+        (self.sources["v1.1.0"] / "VERSION").write_text("v0.9.0\n")
+        with self.assertRaisesRegex(ValueError, "older release cannot safely manage"):
+            self.activate("v1.1.0")
+        self.assertEqual(teaching.read_text(), "My teaching stays unchanged.\n")
+        self.assertEqual((self.managed / "install.json").read_bytes(), metadata)
+        self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
+        self.assertFalse((self.managed / "releases/v0.9.0").exists())
 
     def test_failed_launcher_replace_preserves_working_command_and_accepts_retry(self):
         data = self.installed()
@@ -172,10 +263,27 @@ class InstallRecoveryTests(unittest.TestCase):
         self.assertTrue(self.binary.exists())
         self.assertTrue((self.managed / "current/ROLE.md").exists())
 
+    def test_uninstall_preserves_data_replacing_profile_or_state_link(self):
+        self.installed()
+        for name in ("profile", "state"):
+            with self.subTest(name=name):
+                path = self.managed / "releases/v1.0.0" / name
+                path.unlink()
+                path.mkdir()
+                personal = path / "keep.md"
+                personal.write_text("Local work must survive.\n")
+                with self.assertRaises(ValueError):
+                    lifecycle.uninstall(self.managed, purge=True)
+                self.assertEqual(personal.read_text(), "Local work must survive.\n")
+                self.assertTrue(self.binary.exists())
+                personal.unlink()
+                path.rmdir()
+                path.symlink_to("../../" + name)
+
     def test_uninstall_recovers_from_partially_removed_release(self):
         self.installed()
         history = self.managed / "private/log.jsonl"
-        history.write_text('{"run": 15, "reason": "keep this"}\n')
+        history.write_text('{"run": 15, "reason": "keep this", "decision": "leave", "picked": "bb:thread-a", "ts": "2026-09-01T10:00:00+00:00"}\n')
         contents = history.read_bytes()
         release = self.managed / "releases/v1.0.0"
         rmtree = install.shutil.rmtree

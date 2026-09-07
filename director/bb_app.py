@@ -97,7 +97,7 @@ def scan_thread(thread, now):
     }
 
 
-def collect(threads, now, self_id, host_id, hours=None):
+def collect(threads, now, self_id, host_id, hours=None, recent_user_seconds=180):
     if not isinstance(threads, list):
         raise ValueError("bb thread list did not return threads")
     eligible, candidates, skipped, errors = [], [], [], []
@@ -131,14 +131,14 @@ def collect(threads, now, self_id, host_id, hours=None):
         for thread, future in futures:
             try:
                 row = future.result()
-                recent = row["user_at_ms"] is not None and now * 1000 - row["user_at_ms"] < 180_000
+                recent = row["user_at_ms"] is not None and now * 1000 - row["user_at_ms"] < recent_user_seconds * 1000
                 (skipped if recent else candidates).append(row)
             except ERRORS as error:
                 errors.append({"id": thread["id"], "error": type(error).__name__, "detail": str(error)})
     return candidates, [row["id"] for row in skipped], errors
 
 
-def scan(self_id, now, hours=None):
+def scan(self_id, now, hours=None, recent_user_seconds=180):
     status = bb("status")
     thread = status.get("thread") if isinstance(status, dict) else None
     environment = thread.get("environment") if isinstance(thread, dict) else None
@@ -146,5 +146,5 @@ def scan(self_id, now, hours=None):
     if not isinstance(host, str) or not host:
         raise ValueError("bb status did not return an environment host ID")
     threads = bb("thread", "list")
-    candidates, skipped, errors = collect(threads, now, self_id, host, hours)
+    candidates, skipped, errors = collect(threads, now, self_id, host, hours, recent_user_seconds)
     return candidates, skipped, errors, {"host": host, "listed": len(threads)}

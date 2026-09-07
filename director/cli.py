@@ -16,11 +16,12 @@ import lifecycle
 
 
 def configure(root, args):
-    private = root / "private"
+    install.migrate(root)
+    state = root / "state"
     workspace = root
-    config = launch.configure(args.app, args.provider, args.model, workspace, private, interactive=not args.yes)
+    config = launch.configure(args.app, args.provider, args.model, workspace, state, interactive=not args.yes)
     subprocess.run([sys.executable, str(workspace / "director/setup.py"), "--app", config["app"], "--quiet"], check=True)
-    install.save(private / "config.json", config)
+    install.save(state / "config.json", config)
     return config
 
 
@@ -74,20 +75,21 @@ def main(argv=None):
                 else:
                     config = configure(root, args)
                     if not args.no_start:
-                        launch.start(config, root, root / "private")
+                        launch.start(config, root, root / "state")
             elif args.command == "setup":
                 install.metadata(root)
                 config = configure(root, args)
                 if not args.no_start:
-                    launch.start(config, root, root / "private")
+                    launch.start(config, root, root / "state")
             elif args.command == "start":
                 install.metadata(root)
-                path = root / "private/config.json"
+                install.migrate(root)
+                path = root / "state/config.json"
                 if path.exists() and not any((args.app, args.provider, args.model)):
                     config = json.loads(path.read_text())
                 else:
                     config = configure(root, args)
-                launch.start(config, root, root / "private")
+                launch.start(config, root, root / "state")
             elif args.command == "update":
                 lifecycle.update(root, args.release_version)
             elif args.command == "uninstall":

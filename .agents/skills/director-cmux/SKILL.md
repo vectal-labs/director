@@ -17,7 +17,7 @@ Your own surface is `$CMUX_SURFACE_ID` in workspace `$CMUX_WORKSPACE_ID`; `cmux 
 ## Scan (read-only)
 
 ```bash
-python3 director/scan.py            # stopped and exited agents in open cmux terminals, ranked; saves private/scans/<time>.json
+python3 director/scan.py            # stopped and exited agents in open cmux terminals, ranked; saves state/scans/<time>.json
 python3 director/scan.py --hours 6  # only sessions updated in the last 6 hours
 ```
 
@@ -45,12 +45,12 @@ python3 director/scan.py                                # the surface must not b
 
 Confirm the candidate still has the same `session`, `input_history_known: true`, and the same prompt; use its current surface ID. If it is working, absent, recently contacted, unreadable, or changed, do nothing and append `outcome --status skipped` to the original review. Keep its run number; the recheck scan may no longer contain the target.
 
-## Act (manual stage: only after the operator says yes)
+## Act (only after explicit approval)
 
 For `exited`, inspect the session metadata and propose the exact resume command for approval. Do not send a chat message into its shell. Confirm the agent has resumed before sending it instructions.
 
 ```bash
-cmux send --surface <uuid> "YOUR MESSAGE IN FULL CAPS"
+cmux send --surface <uuid> "<approved message in the profile’s style>"
 cmux send-key --surface <uuid> enter
 cmux read-screen --surface <uuid> --lines 20   # confirm the agent picked it up
 ```
@@ -64,7 +64,7 @@ cmux read-screen --surface <uuid> --lines 20   # confirm the agent picked it up
 - `select-workspace`, `focus-*`, `new-*`, `close-*`, `move-surface`, `notify`, `set-status`, `settings`, `hooks`, `browser`, or anything that changes layout, focus, or config.
 - Send `ctrl+c`, `esc`, or keys that could interrupt a running agent.
 - Touch bb. You watch cmux only.
-- Type into a surface the operator wrote to in the last 3 minutes.
+- Type into a surface the operator wrote to within the profile’s recent-human-input window.
 
 ## Record the proposal and outcome
 

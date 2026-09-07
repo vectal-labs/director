@@ -11,9 +11,15 @@ import os
 import random
 import time
 
-import bb_app
-import cmux_app
-import memory
+try:
+    from . import bb_app, cmux_app, lessons, memory, migrate, preferences
+except ImportError:
+    import bb_app
+    import cmux_app
+    import lessons
+    import memory
+    import migrate
+    import preferences
 
 APPS = {"bb": bb_app, "cmux": cmux_app}
 
@@ -40,28 +46,34 @@ def main():
         parser.error("--hours must be positive")
     try:
         app = launch_app(args.app)
+        migrate.migrate(memory.ROOT)
+        settings = preferences.read()
         priorities = memory.read_priorities()
-    except ValueError as error:
+    except (ValueError, OSError) as error:
         parser.error(str(error))
     module = APPS[app]
     self_id = args.self or os.environ[module.SELF_VAR]
     now = time.time()
     try:
-        runs = memory.read()
+        with lessons.locked():
+            text = memory.LOG.read_text() if memory.LOG.exists() else ""
+            lesson_records = lessons.reconcile(text)
+            runs = memory.read(text)
     except (ValueError, OSError) as error:
         parser.exit(1, f"memory read failed: {error}\n")
     try:
-        rows, skipped, errors, extras = module.scan(self_id, now, args.hours)
+        rows, skipped, errors, extras = module.scan(self_id, now, args.hours, settings["recent_user_seconds"])
     except module.ERRORS as error:
         parser.exit(1, f"{app} scan failed: {error}\n")
     seed = args.seed if args.seed is not None else random.SystemRandom().getrandbits(64)
-    memory.attach_lessons(rows, runs, now, app)
-    selection = memory.rank(rows, runs, now, seed, priorities)
+    memory.attach_lessons(rows, runs, now, app, records=lessons.records_for_scan(lesson_records))
+    selection = memory.rank(rows, runs, now, seed, priorities, settings)
     memory.SCANS.mkdir(parents=True, exist_ok=True)
     path = memory.SCANS / dt.datetime.now().strftime("%Y-%m-%d-%H%M%S-%f.json")
     result = {"app": app, "self": self_id, "scanned_at": dt.datetime.fromtimestamp(now).astimezone().isoformat(),
               "duration_ms": round((time.time() - now) * 1000), "hours": args.hours, **extras,
-              "scan": f"scans/{path.name}", "selection": selection, "priority_config": priorities, "candidates": rows,
+              "scan": f"state/scans/{path.name}", "selection": selection, "priority_config": priorities,
+              "settings": settings, "candidates": rows,
               "skipped_user_recent": skipped, "coverage": "partial" if errors else "full", "errors": errors}
     output = json.dumps(result, indent=1, ensure_ascii=False)
     path.write_text(output)

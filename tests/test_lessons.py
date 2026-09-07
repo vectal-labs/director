@@ -241,6 +241,9 @@ class LessonTests(unittest.TestCase):
 
     def test_inline_legacy_correction_is_retained_without_inferred_scope(self):
         self.log_review(self.scan())
+        profile = self.root / "profile"
+        profile.mkdir(exist_ok=True)
+        (profile / "settings.json").write_text(json.dumps({"legacy_override_decisions": {"Q20": "leave"}}))
         legacy = self.events()[0]
         legacy["david_override"] = {"david": "This older instruction has no documented scope.", "rule": "Q20"}
         self.log_path.write_text(json.dumps(legacy))

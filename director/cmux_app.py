@@ -158,7 +158,7 @@ def row(session, terminal, now, read):
     }
 
 
-def collect(sessions, live, self_surface, now, read_history, hours=None, read=screen):
+def collect(sessions, live, self_surface, now, read_history, hours=None, read=screen, recent_user_seconds=180):
     """Stopped agents on open terminals. `live` comes from the all-window tree."""
     if not isinstance(sessions, list):
         raise ValueError("cmux sessions list did not return sessions")
@@ -217,12 +217,12 @@ def collect(sessions, live, self_surface, now, read_history, hours=None, read=sc
         entry.update(input_history_known=history.known(entry["id"]),
                      user_at_ms=user_at * 1000 if user_at is not None else None,
                      user_min_ago=round((now - user_at) / 60, 2) if user_at is not None else None)
-        recent = entry["user_at_ms"] is not None and now * 1000 - entry["user_at_ms"] < 180_000
+        recent = entry["user_at_ms"] is not None and now * 1000 - entry["user_at_ms"] < recent_user_seconds * 1000
         (skipped if recent else candidates).append(entry)
     return candidates, [entry["id"] for entry in skipped], errors, dropped
 
 
-def scan(self_surface, now, hours=None):
+def scan(self_surface, now, hours=None, recent_user_seconds=180):
     saved = cmux("sessions", "list", "--all")
     if not isinstance(saved, dict) or not isinstance(saved.get("sessions"), list):
         raise ValueError("cmux sessions list did not return sessions")
@@ -231,5 +231,5 @@ def scan(self_surface, now, hours=None):
     live, workspace_count = terminals(cmux("tree", "--all", "--id-format", "both"))
     history_path = pathlib.Path(saved["state_dir"]) / "events.jsonl"
     candidates, skipped, errors, dropped = collect(
-        saved["sessions"], live, self_surface, now, lambda: user_input_times(history_path), hours)
+        saved["sessions"], live, self_surface, now, lambda: user_input_times(history_path), hours, recent_user_seconds=recent_user_seconds)
     return candidates, skipped, errors, {"workspaces": workspace_count, "listed": len(saved["sessions"]), "dropped": dropped}

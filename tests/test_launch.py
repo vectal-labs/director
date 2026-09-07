@@ -6,6 +6,7 @@ import json
 import os
 import pty
 import select
+import shlex
 from pathlib import Path
 import sys
 import tempfile
@@ -103,8 +104,9 @@ class LaunchTests(unittest.TestCase):
         self.home = Path(temporary.name)
         self.root = self.home / 'installation' / 'current'
         self.root.mkdir(parents=True)
-        self.private = self.home / 'private'
-        self.private.mkdir()
+        self.state_dir = self.root / 'state'
+        self.state_dir.mkdir()
+        (self.root / 'profile').mkdir()
         self.bin = self.home / 'bin'
         self.bin.mkdir()
         self.statefile = self.home / 'fake-state.json'
@@ -135,12 +137,12 @@ class LaunchTests(unittest.TestCase):
         self.write_state(state)
 
     def configure(self, app='bb', provider=None, model=None):
-        config = launch.configure(app, provider, model, self.root, self.private, interactive=False)
-        (self.private / 'config.json').write_text(json.dumps(config))
+        config = launch.configure(app, provider, model, self.root, self.state_dir, interactive=False)
+        (self.state_dir / 'config.json').write_text(json.dumps(config))
         return config
 
     def ledger(self):
-        return json.loads((self.private / 'launches.json').read_text())
+        return json.loads((self.state_dir / 'launches.json').read_text())
 
     def calls(self, app, *prefix):
         return [c for c in self.state()['calls'] if c[:len(prefix)+1] == [app, *prefix]]
@@ -157,19 +159,19 @@ class LaunchTests(unittest.TestCase):
 
     def test_rerun_preserves_provider_model_and_project(self):
         config = self.configure(model='economy')
-        rerun = launch.configure(None, None, None, self.root, self.private, interactive=False)
+        rerun = launch.configure(None, None, None, self.root, self.state_dir, interactive=False)
         self.assertEqual(config, rerun)
         self.assertEqual(len(self.calls('bb', 'project', 'create')), 1)
 
     def test_unattended_setup_requires_app_when_both_installed(self):
         with self.assertRaisesRegex(launch.LaunchError, 'Both bb and cmux'):
-            launch.configure(None, None, None, self.root, self.private, interactive=False)
+            launch.configure(None, None, None, self.root, self.state_dir, interactive=False)
         self.assertEqual(self.state()['calls'], [])
 
     def test_bb_start_and_rerun_create_one_correctly_scoped_thread(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
+        launch.start(config, self.root, self.state_dir)
         calls = self.calls('bb', 'thread', 'spawn')
         self.assertEqual(len(calls), 1)
         call = calls[0]
@@ -183,32 +185,32 @@ class LaunchTests(unittest.TestCase):
         config = self.configure()
         self.set_state(spawn_lost_reply=True)
         with self.assertRaises(launch.LaunchError):
-            launch.start(config, self.root, self.private)
+            launch.start(config, self.root, self.state_dir)
         self.assertEqual(len(self.ledger()['sessions']), 1)
         with self.assertRaisesRegex(launch.LaunchError, 'previous launch was interrupted'):
-            launch.start(config, self.root, self.private)
+            launch.start(config, self.root, self.state_dir)
         self.assertEqual(len(self.calls('bb', 'thread', 'spawn')), 1)
-        launch.stop_owned(self.root, self.private, purge=True)
+        launch.stop_owned(self.root, self.state_dir, purge=True)
         self.assertEqual(self.state()['threads'], {})
         self.assertEqual(self.state()['projects'], [])
 
     def test_bb_uninstall_preserves_app_history_and_other_threads(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         state = self.state()
         state['threads']['other'] = {'thread':{'id':'other','projectId':config['project_id'],
                                              'title':'Human work','status':'active'},
                                     'environment':{'hostId':'host_local','path':str(self.root)}}
         self.write_state(state)
-        launch.stop_owned(self.root, self.private)
+        launch.stop_owned(self.root, self.state_dir)
         self.assertEqual(self.state()['threads']['other']['thread']['status'], 'active')
         self.assertEqual(self.state()['threads']['thr_1']['thread']['status'], 'idle')
         self.assertFalse(self.calls('bb', 'thread', 'delete'))
 
     def test_bb_purge_removes_only_owned_app_records(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
-        launch.stop_owned(self.root, self.private, purge=True)
+        launch.start(config, self.root, self.state_dir)
+        launch.stop_owned(self.root, self.state_dir, purge=True)
         self.assertEqual(self.state()['threads'], {})
         self.assertEqual(self.state()['projects'], [])
 
@@ -216,64 +218,64 @@ class LaunchTests(unittest.TestCase):
         self.set_state(projects=[{'id':'existing','name':'My project',
                                   'sources':[{'path':str(self.root),'hostId':'host_local'}]}])
         config = self.configure()
-        launch.start(config, self.root, self.private)
-        launch.stop_owned(self.root, self.private, purge=True)
+        launch.start(config, self.root, self.state_dir)
+        launch.stop_owned(self.root, self.state_dir, purge=True)
         self.assertFalse(self.calls('bb', 'project', 'delete'))
         self.assertFalse(self.ledger()['projects'][0]['owned'])
 
     def test_bb_purge_keeps_project_with_unowned_thread(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         state = self.state()
         state['threads']['other'] = {'thread':{'id':'other','projectId':config['project_id'],
                                              'title':'Human work','status':'active'}}
         self.write_state(state)
         with self.assertRaisesRegex(launch.LaunchError, 'contains other threads'):
-            launch.stop_owned(self.root, self.private, purge=True)
+            launch.stop_owned(self.root, self.state_dir, purge=True)
         self.assertTrue(self.state()['projects'])
         self.assertFalse(self.calls('bb', 'project', 'delete'))
 
     def test_bb_ownership_changes_prevent_stop(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         state = self.state()
         state['threads']['thr_1']['environment']['path'] = '/someone/else'
         self.write_state(state)
         with self.assertRaisesRegex(launch.LaunchError, 'ownership metadata changed'):
-            launch.stop_owned(self.root, self.private)
+            launch.stop_owned(self.root, self.state_dir)
         self.assertFalse(self.calls('bb', 'thread', 'stop'))
 
     def test_bb_thread_moved_to_another_project_blocks_stop(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         state = self.state()
         state['threads']['thr_1']['thread']['projectId'] = 'another-project'
         self.write_state(state)
         with self.assertRaisesRegex(launch.LaunchError, 'ownership metadata changed'):
-            launch.stop_owned(self.root, self.private)
+            launch.stop_owned(self.root, self.state_dir)
         self.assertFalse(self.calls('bb', 'thread', 'stop'))
 
     def test_offline_app_and_unfinished_stop_fail_closed(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         self.set_state(offline='bb')
         with self.assertRaises(launch.LaunchError):
-            launch.stop_owned(self.root, self.private)
+            launch.stop_owned(self.root, self.state_dir)
         self.set_state(offline=None, stop_stuck=True)
         with self.assertRaisesRegex(launch.LaunchError, 'still stopping'):
-            launch.stop_owned(self.root, self.private)
+            launch.stop_owned(self.root, self.state_dir)
         self.assertNotIn('stopped', self.ledger()['sessions'][0])
 
     def test_bb_stop_after_update_uses_recorded_release_path(self):
         config = self.configure()
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         ledger = self.ledger()
         ledger['sessions'][0]['resolved_root'] = '/install/releases/v1'
-        (self.private / 'launches.json').write_text(json.dumps(ledger))
+        (self.state_dir / 'launches.json').write_text(json.dumps(ledger))
         state = self.state()
         state['threads']['thr_1']['environment']['path'] = '/install/releases/v1'
         self.write_state(state)
-        launch.stop_owned(self.root, self.private)
+        launch.stop_owned(self.root, self.state_dir)
         self.assertEqual(self.state()['threads']['thr_1']['thread']['status'], 'idle')
 
     def test_cmux_setup_guides_shared_hooks_without_mutations(self):
@@ -286,8 +288,8 @@ class LaunchTests(unittest.TestCase):
 
     def test_cmux_start_targets_owned_surface_and_reuses_workspace(self):
         config = self.configure('cmux', 'codex', 'custom-model')
-        launch.start(config, self.root, self.private)
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
+        launch.start(config, self.root, self.state_dir)
         self.assertEqual(len(self.calls('cmux', 'new-workspace')), 1)
         created = self.calls('cmux', 'new-workspace')[0]
         self.assertEqual(created[created.index('--focus')+1], 'false')
@@ -295,6 +297,9 @@ class LaunchTests(unittest.TestCase):
         self.assertIn('surface-ws-1', sent)
         self.assertIn('--sandbox workspace-write', sent[-1])
         self.assertIn('--ask-for-approval on-request', sent[-1])
+        self.assertIn('--add-dir ' + shlex.quote(str(self.root / 'profile')), sent[-1])
+        self.assertIn('--add-dir ' + shlex.quote(str(self.state_dir)), sent[-1])
+        self.assertIn('profile/ teaching and settings', sent[-1])
         self.assertIn('unset BB_THREAD_ID', sent[-1])
         self.assertIn('custom-model', sent[-1])
         self.assertNotIn('bypass', sent[-1])
@@ -302,34 +307,34 @@ class LaunchTests(unittest.TestCase):
 
     def test_cmux_uninstall_does_not_close_other_workspace(self):
         config = self.configure('cmux', 'claude')
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         state = self.state()
         state['workspaces'].append({'id':'human-workspace','title':'Human work','panes':[]})
         self.write_state(state)
-        launch.stop_owned(self.root, self.private, purge=True)
+        launch.stop_owned(self.root, self.state_dir, purge=True)
         self.assertEqual([w['id'] for w in self.state()['workspaces']], ['human-workspace'])
         self.assertFalse(self.calls('cmux', 'hooks'))
 
     def test_cmux_added_surface_blocks_workspace_close(self):
         config = self.configure('cmux', 'claude')
-        launch.start(config, self.root, self.private)
+        launch.start(config, self.root, self.state_dir)
         state = self.state()
         state['workspaces'][0]['panes'][0]['surfaces'].append({'id':'human-terminal','type':'terminal'})
         self.write_state(state)
         with self.assertRaisesRegex(launch.LaunchError, 'layout or title changed'):
-            launch.stop_owned(self.root, self.private)
+            launch.stop_owned(self.root, self.state_dir)
         self.assertFalse(self.calls('cmux', 'close-workspace'))
 
     def test_cmux_failed_send_is_tracked_and_never_retried_into_uncertain_shell(self):
         config = self.configure('cmux', 'claude')
         self.set_state(fail_command=['send-key','--workspace'])
         with self.assertRaises(launch.LaunchError):
-            launch.start(config, self.root, self.private)
+            launch.start(config, self.root, self.state_dir)
         with self.assertRaisesRegex(launch.LaunchError, 'previous launch was interrupted'):
-            launch.start(config, self.root, self.private)
+            launch.start(config, self.root, self.state_dir)
         self.assertEqual(len(self.calls('cmux', 'send')), 1)
         self.set_state(fail_command=None)
-        launch.stop_owned(self.root, self.private)
+        launch.stop_owned(self.root, self.state_dir)
         self.assertEqual(self.state()['workspaces'], [])
 
     def test_terminal_question_reads_tty_when_stdin_is_a_pipeline(self):
@@ -370,9 +375,9 @@ class LaunchTests(unittest.TestCase):
                 os.waitpid(child, 0)
 
     def test_corrupt_ownership_file_blocks_actions(self):
-        (self.private / 'launches.json').write_text('broken json')
+        (self.state_dir / 'launches.json').write_text('broken json')
         with self.assertRaisesRegex(launch.LaunchError, 'Cannot read'):
-            launch.stop_owned(self.root, self.private)
+            launch.stop_owned(self.root, self.state_dir)
         self.assertFalse(self.state()['calls'])
 
 

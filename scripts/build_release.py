@@ -21,9 +21,13 @@ RUNTIME_FILES = (
     "director/cmux_app.py",
     "director/install.py",
     "director/launch.py",
+    "director/lessons.py",
     "director/lifecycle.py",
     "director/log.py",
     "director/memory.py",
+    "director/preferences.py",
+    "director/storage.py",
+    "director/migrate.py",
     "director/scan.py",
     "director/setup.py",
 )
@@ -33,6 +37,7 @@ INSTRUCTION_FILES = (
     "ROLE.md",
     "director/AGENTS.md",
     "docs/memory.md",
+    "docs/profile.md",
     ".agents/skills/director-bb/SKILL.md",
     ".agents/skills/director-cmux/SKILL.md",
 )

@@ -10,7 +10,7 @@ Director helps keep your coding agents moving in bb or cmux. It reviews stopped 
 curl -fsSL https://raw.githubusercontent.com/vectal-labs/director/main/install.sh | sh
 ```
 
-Setup chooses your app and agent, creates starter rules, and starts Director. Your provider may ask you to trust the folder or sign in. Review the rules in `~/.local/share/director/private/judgment/` before approving actions.
+Setup chooses your app and agent, creates starter rules, and starts Director. Your provider may ask you to trust the folder or sign in. Review the rules in `~/.local/share/director/profile/` before approving actions.
 
 ```sh
 director start
@@ -27,7 +27,7 @@ See [installation options and removal](docs/install.md). To work from source, cl
 
 - **You approve actions.** Director shows its proposed message or prompt response before sending it.
 - **One app at a time.** It watches only the app it was launched in.
-- **Your rules stay local.** Reviews and corrections are saved in gitignored `private/`. Each teammate keeps their own history.
+- **Your rules stay local.** Teaching is saved in gitignored `profile/`; reviews and runtime history are saved in gitignored `state/`. Each teammate keeps their own history.
 
 ## Documentation
 

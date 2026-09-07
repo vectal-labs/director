@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Check prerequisites and create missing private rule files. Safe to run again."""
+"""Check prerequisites and create missing personal profile files. Safe to run again."""
 import argparse
-import pathlib
+import json
 import shutil
 import sys
 
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+from storage import ROOT
+from migrate import migrate
+from preferences import DEFAULTS, read as read_preferences
 EXAMPLES = {
     "what.md": """# What to do
 
@@ -58,22 +60,33 @@ def main():
     say(f"Requirements OK: macOS, Python {sys.version.split()[0]}, {args.app} CLI.")
 
     try:
-        judgment = ROOT / "private" / "judgment"
+        migrate(ROOT)
+        (ROOT / "state").mkdir(parents=True, exist_ok=True)
+        judgment = ROOT / "profile"
         judgment.mkdir(parents=True, exist_ok=True)
         for name, text in EXAMPLES.items():
             path = judgment / name
             try:
                 with path.open("x", encoding="utf-8") as file:
                     file.write(text)
-                say(f"Created private/judgment/{name}")
+                say(f"Created profile/{name}")
             except FileExistsError:
                 if not path.is_file():
-                    raise ValueError(f"private/judgment/{name} must be a file")
-                say(f"Kept private/judgment/{name}")
+                    raise ValueError(f"profile/{name} must be a file")
+                say(f"Kept profile/{name}")
+        settings = judgment / "settings.json"
+        try:
+            with settings.open("x", encoding="utf-8") as file:
+                json.dump(DEFAULTS, file, indent=2)
+                file.write("\n")
+            say("Created profile/settings.json")
+        except FileExistsError:
+            read_preferences(settings)
+            say("Kept profile/settings.json")
     except (OSError, ValueError) as error:
         parser.exit(1, f"Could not set up rule files: {error}\n")
 
-    say("\nRead and edit the rules in private/judgment/ before starting.")
+    say("\nRead and edit the rules in profile/ before starting.")
     if args.app == "cmux":
         say("Run cmux hooks setup once so your agents report their state.")
     say(f"Open this repo in {args.app} and tell your agent: Read ROLE.md and be the Director.")

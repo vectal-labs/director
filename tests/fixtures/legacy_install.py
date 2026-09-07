@@ -14,17 +14,11 @@ import urllib.parse
 import urllib.request
 import uuid
 
-try:
-    from .migrate import cleanup_legacy_aliases, migrate
-except ImportError:
-    from migrate import cleanup_legacy_aliases, migrate
-
 VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 RELEASES = "https://github.com/vectal-labs/director/releases"
 WORKSPACE_LINKS = {name: "current/" + name for name in ("ROLE.md", "AGENTS.md", "CLAUDE.md", ".gitignore", "director", "docs", ".agents", ".claude")}
 LINKS = {"CLAUDE.md": "AGENTS.md", "director/CLAUDE.md": "AGENTS.md",
          ".claude/skills": "../.agents/skills"}
-DATA_DIRS = ("profile", "state", "private")
 
 
 def save(path, data):
@@ -54,59 +48,9 @@ def metadata(root):
     if not path.is_file():
         raise ValueError(f"No managed Director installation at {root}. Run the installer first.")
     data = json.loads(path.read_text())
-    recorded = data.get("root")
-    same_root = (isinstance(recorded, str) and Path(recorded).is_absolute()
-                 and Path(recorded).resolve() == root.resolve())
-    if data.get("schema") != 1 or not same_root or not data.get("id"):
+    if data.get("schema") != 1 or data.get("root") != str(root) or not data.get("id"):
         raise ValueError("Unrecognized Director installation record; leaving files untouched.")
     return data
-
-
-def repair_managed_links(root):
-    """Complete data links omitted when an older installer activated new code."""
-    root = Path(root)
-    if root.parent.name == "releases":
-        root = root.parent.parent
-    if root.is_symlink():
-        raise ValueError("DIRECTOR_HOME must not be a symlink.")
-    data = metadata(root)
-    for name in (*DATA_DIRS, "releases"):
-        path = root / name
-        if path.is_symlink() or (path.exists() and not path.is_dir()):
-            raise ValueError(f"Managed {name} directory must be a local directory.")
-    versions = data.get("versions", [])
-    if not isinstance(versions, list) or any(not isinstance(v, str) or not VERSION.fullmatch(v) for v in versions):
-        raise ValueError("Invalid installed release record.")
-    current = root / "current"
-    if (current.exists() or current.is_symlink()) and (
-            not current.is_symlink() or os.readlink(current) not in {"releases/" + v for v in versions}):
-        raise ValueError("The current release path was changed outside Director.")
-    missing = []
-    for version in versions:
-        target = root / "releases" / version
-        if target.is_symlink() or (target.exists() and not target.is_dir()):
-            raise ValueError(f"Release path changed outside Director: {target}")
-        if not target.exists() or version in data.get("removing", []):
-            continue
-        expected = data.get("digests", {}).get(version)
-        if not expected or tree_digest(target) != expected:
-            raise ValueError(f"Local changes found in {target}. Move those changes out before continuing.")
-        separated = (target / "director/storage.py").is_file()
-        for name in DATA_DIRS:
-            path = target / name
-            if path.exists() or path.is_symlink():
-                if not path.is_symlink() or os.readlink(path) != "../../" + name:
-                    raise ValueError(f"The {name} data link in {target} was changed. Move any local data out before continuing.")
-            elif name == "private":
-                raise ValueError(f"The private data link in {target} is missing.")
-            elif separated:
-                missing.append(path)
-    if missing and not current.is_symlink():
-        raise ValueError("Cannot repair release data links without the owned current release link.")
-    # Validate the entire installation before creating even one link.
-    for path in missing:
-        path.symlink_to("../../" + path.name, target_is_directory=True)
-    return root
 
 
 @contextlib.contextmanager
@@ -250,7 +194,7 @@ def validate_source(source):
         relative = path.relative_to(source).as_posix()
         if path.is_symlink() and LINKS.get(relative) != os.readlink(path):
             raise ValueError(f"Unexpected release symlink: {relative}")
-        if any(p in {*DATA_DIRS, ".git", "__pycache__"} or p.startswith(".env") for p in path.relative_to(source).parts):
+        if any(p in {"private", ".git", "__pycache__"} or p.startswith(".env") for p in path.relative_to(source).parts):
             raise ValueError(f"Private or generated file in release: {relative}")
         if path.suffix == ".py" and path.is_file():
             try:
@@ -262,21 +206,13 @@ def validate_source(source):
 
 def activate(root, source, data=None):
     version = validate_source(source)
-    separated = (source / "director/storage.py").is_file()
-    if (not separated and data and (data.get("data_layout") == 2 or
-            any((root / name).exists() for name in ("profile", "state")))):
-        raise ValueError("This older release cannot safely manage profile/ and state/. "
-                         "Choose a release that supports the current data layout; the installed version was kept.")
     if data and data.get("removing"):
         raise ValueError("A previous uninstall was interrupted. Rerun install.sh --uninstall before installing again.")
-    if data:
-        repair_managed_links(root)
     data = data or {"schema": 1, "root": str(root), "id": uuid.uuid4().hex,
                     "versions": [], "digests": {}, "shell": [], "installed": False}
     # Save ownership before creating install files; a failed first install can be rerun.
     save(root / "install.json", data)
-    directories = DATA_DIRS if separated else ("private",)
-    for name in (*directories, "releases"):
+    for name in ("private", "releases"):
         if (root / name).is_symlink():
             raise ValueError(f"Managed {name} directory must not be a symlink.")
         (root / name).mkdir(exist_ok=True, mode=0o700)
@@ -285,7 +221,7 @@ def activate(root, source, data=None):
     if target.exists() or target.is_symlink():
         if version not in data["versions"] or target.is_symlink():
             raise ValueError(f"Release directory already exists and is not owned: {target}")
-        validate_data_links(target)
+        validate_private_link(target)
         if tree_digest(target) != tree_digest(source):
             raise ValueError(f"Installed {version} differs from this release. Publish a new version instead.")
     else:
@@ -297,17 +233,13 @@ def activate(root, source, data=None):
         save(root / "install.json", data)
         try:
             shutil.copytree(source, staging, symlinks=True)
-            for name in directories:
-                (staging / name).symlink_to("../../" + name, target_is_directory=True)
+            (staging / "private").symlink_to("../../private", target_is_directory=True)
             os.replace(staging, target)
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
         data["staging"].remove(staging.name)
         save(root / "install.json", data)
-    if separated:
-        migrate(root)
-        data["data_layout"] = 2
     for name, link in WORKSPACE_LINKS.items():
         path = root / name
         if path.exists() or path.is_symlink():
@@ -335,7 +267,7 @@ def tree_digest(root):
     result = hashlib.sha256()
     for path in sorted(root.rglob("*")):
         name = path.relative_to(root).as_posix()
-        if name.split("/")[0] in DATA_DIRS or "__pycache__" in path.parts or path.suffix == ".pyc":
+        if name == "private" or name.startswith("private/") or "__pycache__" in path.parts or path.suffix == ".pyc":
             continue
         result.update(name.encode())
         if path.is_symlink():
@@ -420,12 +352,7 @@ def write_text(path, text, mode=None):
         Path(temporary).unlink(missing_ok=True)
 
 
-def validate_data_links(release, removing=False):
-    """Old releases require only private; new releases require all data links."""
-    separated = (release / "director/storage.py").is_file()
-    for name in DATA_DIRS:
-        path = release / name
-        present = path.exists() or path.is_symlink()
-        required = not removing and (name == "private" or separated)
-        if (present or required) and (not path.is_symlink() or os.readlink(path) != "../../" + name):
-            raise ValueError(f"The {name} data link in {release} was changed. Move any local data out before continuing.")
+def validate_private_link(release):
+    private = release / "private"
+    if not private.is_symlink() or os.readlink(private) != "../../private":
+        raise ValueError(f"The private data link in {release} was changed. Move any local data out before continuing.")

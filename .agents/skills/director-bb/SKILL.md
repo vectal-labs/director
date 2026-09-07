@@ -10,11 +10,11 @@ Your own thread is `$BB_THREAD_ID`. `bb status --json` shows it. If it is not ti
 ## Scan (read-only)
 
 ```bash
-python3 director/scan.py            # every stopped bb thread on this Mac, ranked; saves private/scans/<time>.json
+python3 director/scan.py            # every stopped bb thread on this Mac, ranked; saves state/scans/<time>.json
 python3 director/scan.py --hours 6  # only threads updated in the last 6 hours
 ```
 
-Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, `pending`), `idle_min`, `pending_interaction`, `recent_error`, `ends_with_question`, `last_agent_msg`, `user_min_ago` (last human message), and the review fields `eligibility_reason`, `review_eligible`, `history`. `skipped_user_recent` lists threads the operator wrote to in the last 3 minutes. `coverage: partial` means some thread data or logs could not be read reliably; those failures are in `errors`, so do not treat affected threads as clear.
+Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, `pending`), `idle_min`, `pending_interaction`, `recent_error`, `ends_with_question`, `last_agent_msg`, `user_min_ago` (last human message), and the review fields `eligibility_reason`, `review_eligible`, `history`. `skipped_user_recent` lists threads the operator wrote to within the profile’s recent-human-input window. `coverage: partial` means some thread data or logs could not be read reliably; those failures are in `errors`, so do not treat affected threads as clear.
 
 ## Read one thread
 
@@ -37,10 +37,10 @@ python3 director/scan.py               # the thread must not be in skipped_user_
 
 The target must still be a candidate with `input_history_known: true`, and its current prompt must still match the approved action. If it is running, absent, recently contacted, unreadable, or changed, do nothing and append `outcome --status skipped` to the original review. Keep the original scan and run number; the recheck scan may no longer contain the target.
 
-## Act (manual stage: only after the operator says yes)
+## Act (only after explicit approval)
 
 ```bash
-bb thread tell <id> "YOUR MESSAGE IN FULL CAPS"                        # steers immediately
+bb thread tell <id> "<approved message in the profile’s style>"                        # steers immediately
 bb thread interactions approve <interactionId> <id>                    # command, file change, or plan
 bb thread interactions grant <interactionId> <id>                      # permission
 bb thread interactions answer <interactionId> <id> --choice <questionId=value>   # or --text <questionId=text>
@@ -54,7 +54,7 @@ A `tell` to a thread that is waiting on an interaction is queued until the inter
 
 - Open, split, focus, stop, archive, hide, delete, or spawn threads. Do not `bb thread wait` or poll logs.
 - Touch cmux. You watch bb only.
-- Message a thread the operator wrote to in the last 3 minutes.
+- Message a thread the operator wrote to within the profile’s recent-human-input window.
 
 ## Record the proposal and outcome
 

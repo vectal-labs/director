@@ -1,6 +1,6 @@
 # Selection priorities
 
-Edit `private/priorities.json` in the Director checkout you run. It is personal,
+Edit `profile/priorities.json` in the Director checkout you run. It is personal,
 gitignored configuration. The next scan reads it; no restart is needed.
 
 ```json
@@ -30,7 +30,7 @@ Ranking stays deterministic, in this order:
 Running threads and recent human messages remain excluded. A higher weight
 cannot override these checks or urgency. `0.5` means lower priority among
 otherwise comparable threads; it does not promise half as many selections.
-Equal weights keep the old order. Random checks remain disabled; the historical
+Equal weights keep the old order. Random checks default to disabled; the historical
 sampler is unchanged. The suggestion remains subject to Director's judgment
 and manual approval before any agent action.
 

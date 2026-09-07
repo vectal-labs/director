@@ -1,8 +1,10 @@
 # Scoped correction memory
 
-Keep corrections in the existing `private/log.jsonl` and `private/judgment/`
-files. A lesson records what the operator said and where it applies. It does
-not automatically authorize an action or choose an intervention.
+Keep exact teaching in `profile/` and review evidence in `state/log.jsonl`.
+Durable structured preferences and project decisions live in
+`profile/lessons.jsonl`; temporary instructions and exceptions live in
+`state/lessons.jsonl`. A lesson records what the operator said and where it
+applies. It does not authorize an action or choose an intervention.
 
 ## Record a correction
 
@@ -40,7 +42,7 @@ The first five fields are required, except scope defaults to `thread`.
 A temporary instruction needs `ends_when` or `expires_at`. The CLI rejects
 unknown fields and invalid or timezone-free deadlines before appending an event.
 
-The CLI supplies the lesson ID (`run.correction`, such as `12.1`), app, and
+The CLI supplies an unused lesson ID (`run.correction`, such as `12.1`), app, and
 scope target from the original review. Record reviews with `--scan`: bb project
 IDs and cmux project paths are exact matches. cmux thread lessons use the stable
 provider/session key, so moving a terminal preserves them and replacing its
@@ -67,6 +69,13 @@ python3 director/log.py end-lesson --id 12.1 \
 This ends only that lesson. It does not change the historical review, corrected
 decision, cooldown, or original wording. Other lessons on the same run remain.
 Ending an obsolete or withdrawn lesson also uses this command with its evidence.
+
+Each journal retains the original structured correction and ending events. It
+can be read without the review log, so a copied profile keeps its reusable
+teaching. Ending a copied lesson works even when its original review is absent.
+Conflicting IDs stop the command; they never overwrite a different lesson.
+Interrupted journal writes are repaired from review evidence on the next command.
+An ending already in the journal stays ended when older history is read again.
 
 ## Markdown and older history
 

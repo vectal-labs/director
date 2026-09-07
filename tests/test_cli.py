@@ -9,7 +9,8 @@ import tempfile
 import time
 import unittest
 
-SCRIPTS = ("scan.py", "log.py", "memory.py", "bb_app.py", "cmux_app.py")
+SCRIPTS = ("scan.py", "log.py", "memory.py", "bb_app.py", "cmux_app.py",
+           "storage.py", "migrate.py", "preferences.py", "lessons.py")
 FAKE = f"#!{sys.executable}\n" + '''import json, os, sys
 from pathlib import Path
 app = Path(sys.argv[0]).name
@@ -84,7 +85,7 @@ class CliTests(unittest.TestCase):
 
     @property
     def log_path(self):
-        return self.root / "private" / "log.jsonl"
+        return self.root / "state" / "log.jsonl"
 
     def test_scan_review_noise_and_meaningful_change(self):
         first = self.scan()
@@ -93,7 +94,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(first["selection"]["chance"], 0)
         self.assertFalse(any(row["spot_check"] for row in first["candidates"]))
         self.assertEqual(first["coverage"], "full")
-        self.assertTrue((self.root / "private" / first["scan"]).exists())
+        self.assertTrue((self.root / first["scan"]).exists())
         self.log_review(first)
         stored = json.loads(self.log_path.read_text())
         self.assertEqual(stored["app"], "bb")
@@ -256,7 +257,7 @@ class CliTests(unittest.TestCase):
         result = self.cli("scan.py", check=False, env=self.cmux_env())
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tree", result.stderr)
-        self.assertFalse((self.root / "private" / "scans").exists())
+        self.assertFalse((self.root / "state" / "scans").exists())
 
     def test_launch_app_must_be_unambiguous(self):
         neither = {k: v for k, v in self.env.items() if k != "BB_THREAD_ID"}

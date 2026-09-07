@@ -1,20 +1,33 @@
 #!/usr/bin/env python3
-"""Record a review or the operator's correction. Events append to private/log.jsonl under a file lock."""
+"""Record a review or the operator's correction. Events append to state/log.jsonl under a file lock."""
 import argparse
-import fcntl
 import json
+import os
 import pathlib
 
-import bb_app
-import cmux_app
-import memory
-from scan import launch_app
+try:
+    from . import bb_app, cmux_app, lessons, memory, migrate, preferences
+    from .scan import launch_app
+except ImportError:
+    import bb_app
+    import cmux_app
+    import lessons
+    import memory
+    import migrate
+    import preferences
+    from scan import launch_app
 
 
 def load_scan(path):
     path = pathlib.Path(path)
-    if not path.is_absolute() and not path.exists():
-        path = memory.PRIVATE / path
+    if not path.is_absolute():
+        # Historical scans/ and private/scans/ references resolve to migrated state.
+        if path.parts and path.parts[0] == "scans":
+            path = memory.STATE / path
+        elif path.parts[:2] == ("private", "scans"):
+            path = memory.STATE / pathlib.Path(*path.parts[1:])
+        else:
+            path = memory.ROOT / path
     scan = json.loads(path.read_text())
     if not isinstance(scan, dict):
         raise ValueError("scan must be an object")
@@ -86,11 +99,9 @@ def record(args):
             raise ValueError("only a sent or queued action can be confirmed")
         expected = review["outcome"]
         observed = observe_resume(review)
-    memory.LOG.parent.mkdir(exist_ok=True)
-    with memory.LOG.open("a+") as file:
-        fcntl.flock(file, fcntl.LOCK_EX)
-        file.seek(0)
-        contents = file.read()
+    with lessons.locked():
+        contents = memory.LOG.read_text() if memory.LOG.exists() else ""
+        records = lessons.reconcile(contents)
         rows = memory.read(contents)
         if args.cmd == "run":
             if args.action and args.proposed_action:
@@ -115,14 +126,16 @@ def record(args):
                 value = json.loads(args.lesson)
                 if isinstance(value, dict) and value.get("scope") == "project" and not review.get("project") and review.get("scan"):
                     review = {**review, **scan_record(review["scan"], review["picked"])}
-                row["lesson"] = memory.new_lesson(value, review)
+                row["lesson"] = memory.new_lesson(value, review, records)
         elif args.cmd == "end-lesson":
-            review, correction = memory.find_lesson(rows, args.id)
-            if correction.get("lesson_ended"):
+            source = records.get(args.id)
+            if source is None:
+                raise ValueError(f"no lesson {args.id}")
+            if source["ending"]:
                 raise ValueError(f"lesson {args.id} already ended")
             if not args.evidence.strip():
                 raise ValueError("ending a lesson needs evidence that its condition ended or it was withdrawn")
-            row = {"kind": "lesson_end", "run": review["run"], "ts": memory.timestamp(),
+            row = {"kind": "lesson_end", "run": source["source"]["run"], "ts": memory.timestamp(),
                    "lesson_id": args.id, "evidence": args.evidence}
         else:
             review = find_run(rows, args.run)
@@ -145,7 +158,24 @@ def record(args):
                        args.action or review.get("action") or review.get("proposed_action")}
             memory.apply_outcome(review, row)
         prefix = "\n" if contents and not contents.endswith("\n") else ""
-        file.write(prefix + json.dumps(row, ensure_ascii=False) + "\n")
+        addition = prefix + json.dumps(row, ensure_ascii=False) + "\n"
+        historical = True
+        if args.cmd == "end-lesson":
+            # A copied profile need not contain this installation's review history.
+            try:
+                _, correction = memory.find_lesson(rows, args.id)
+                historical = correction == records[args.id]["source"]
+            except ValueError:
+                historical = False
+            if not historical:
+                lessons.end(row, records)
+        if historical:
+            memory.read(contents + addition)  # Validate before changing either journal.
+            with memory.LOG.open("a") as file:
+                file.write(addition)
+                file.flush()
+                os.fsync(file.fileno())
+            lessons.reconcile(contents + addition)
     result = row.get("decision") or row.get("status") or "ended"
     print(f"{args.cmd} {row['run']} logged: {result}"
           + (f" (lesson {row['lesson']['id']})" if row.get("lesson") else "")
@@ -154,10 +184,11 @@ def record(args):
 
 def stats():
     rows = memory.read()
+    settings = preferences.read()
     if not rows:
         return print("no runs")
-    by = {d: sum(memory.effective_decision(r) == d for r in rows) for d in memory.DECISIONS}
-    unknown = sum(memory.effective_decision(r) is None for r in rows)
+    by = {d: sum(memory.effective_decision(r, settings) == d for r in rows) for d in memory.DECISIONS}
+    unknown = sum(memory.effective_decision(r, settings) is None for r in rows)
     overrides = sum(bool(r.get("david_override")) for r in rows)
     print(f"runs {len(rows)} | decisions: " + " ".join(f"{key} {value}" for key, value in by.items())
           + f" | unknown {unknown} | overrides {overrides} ({100 * overrides // len(rows)}%)")
@@ -168,7 +199,7 @@ def stats():
           + f" | confirmed_resumes {statuses.count('resumed')} legacy_unknown {statuses.count('unknown')}")
     for row in rows[-5:]:
         flag = " OVERRIDDEN" if row.get("david_override") else ""
-        decision = memory.effective_decision(row) or "unknown"
+        decision = memory.effective_decision(row, settings) or "unknown"
         print(f"  #{row['run']} {row['ts'][5:16]} {decision:14} {row['picked']} {row.get('title', '')[:35]}"
               f" [{row.get('action_status', 'unknown')}]{flag}")
 
@@ -208,6 +239,8 @@ def main():
     sub.add_parser("stats")
     args = parser.parse_args()
     try:
+        migrate.migrate(memory.ROOT)
+        preferences.read()
         stats() if args.cmd == "stats" else record(args)
     except (ValueError, OSError, KeyError, TypeError) as error:
         parser.exit(1, f"{error}\n")

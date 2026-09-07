@@ -2,7 +2,6 @@ import copy
 import datetime as dt
 import json
 import unittest
-from unittest.mock import patch
 
 from director import memory
 
@@ -56,7 +55,8 @@ class MemoryTests(unittest.TestCase):
 
     def test_legacy_and_append_only_corrections_take_precedence(self):
         old = review(decision="unblock", david_override={"rule": "Q20", "david": "leave it"})
-        self.assertEqual(memory.effective_decision(old), "leave")
+        self.assertIsNone(memory.effective_decision(old))
+        self.assertEqual(memory.effective_decision(old, {"legacy_override_decisions": {"Q20": "leave"}}), "leave")
         correction = {"kind": "override", "run": 1, "decision": "wait_for_david", "david": "wait"}
         rows = memory.read("\n".join(json.dumps(r) for r in [old, correction]))
         self.assertEqual(len(rows), 1)
@@ -96,31 +96,30 @@ class MemoryTests(unittest.TestCase):
             self.assertEqual(selection["chance"], 0)
             self.assertFalse(any(row["spot_check"] for row in rows))
 
-    @patch("director.memory.SPOT_CHECK_CHANCE", 0.2)
     def test_seed_replays_both_draw_and_weighted_choice(self):
         rows = [candidate(), candidate("b")]
         one, two = copy.deepcopy(rows), copy.deepcopy(rows)
-        self.assertEqual(memory.rank(one, [], NOW, 1), memory.rank(two, [], NOW, 1))
+        self.assertEqual(memory.rank(one, [], NOW, 1, settings={"spot_check_chance": 0.2}),
+                         memory.rank(two, [], NOW, 1, settings={"spot_check_chance": 0.2}))
         self.assertEqual(one, two)
         self.assertEqual(sum(r["spot_check"] for r in one), 1)
 
-    @patch("director.memory.SPOT_CHECK_CHANCE", 0.2)
     def test_about_twenty_percent_of_runs_are_random(self):
         count = 0
         for seed in range(2000):
             rows = [candidate(), candidate("b")]
-            selection = memory.rank(rows, [], NOW, seed)
+            selection = memory.rank(rows, [], NOW, seed, settings={"spot_check_chance": 0.2})
             count += selection["mode"] == "spot_check"
             self.assertLessEqual(sum(r["spot_check"] for r in rows), 1)
         self.assertTrue(340 < count < 460, count)
 
-    @patch("director.memory.SPOT_CHECK_CHANCE", 0.2)
     def test_random_selection_favors_less_recent_reviews(self):
         reviews = [review("recent", decision="unblock", age=60),
                    review("older", decision="unblock", age=86400, run=2)]
         picked = []
         for seed in range(2000):
-            result = memory.rank([candidate("recent"), candidate("older")], reviews, NOW, seed)
+            result = memory.rank([candidate("recent"), candidate("older")], reviews, NOW, seed,
+                                 settings={"spot_check_chance": 0.2})
             if result["mode"] == "spot_check":
                 picked.append(result["suggested"])
         self.assertGreater(picked.count("older") / len(picked), 0.95)

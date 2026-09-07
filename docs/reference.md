@@ -4,7 +4,7 @@ For installation and launch, see the [quick start](../README.md#quick-start) and
 
 ## Setup and personal rules
 
-`python3 director/setup.py --app bb` (or `--app cmux`) checks macOS, Python, and the chosen CLI. It creates missing files in `private/judgment/` and keeps existing files. You can rerun it safely. Setup has been tested with Python 3.9.6 and 3.14.6.
+`python3 director/setup.py --app bb` (or `--app cmux`) checks macOS, Python, and the chosen CLI. It creates missing files in `profile/` and keeps existing files. You can rerun it safely. Setup has been tested with Python 3.9.6 and 3.14.6.
 
 - `what.md`: what Director should do.
 - `how.md`: how it should work.
@@ -13,7 +13,7 @@ For installation and launch, see the [quick start](../README.md#quick-start) and
 
 See [scoped correction memory](memory.md) for lesson kinds, boundaries, and ending temporary instructions. Review history remains append-only.
 
-Read and edit the examples before starting. Share the Git repo with teammates; each person keeps their own rules and history in gitignored `private/`.
+Read and edit the examples before starting. Share the Git repo with teammates; each person keeps their own teaching in gitignored `profile/` and history in gitignored `state/`.
 
 For cmux, run `cmux hooks setup` once so Claude Code, Codex, Pi, and other agents report their state.
 
@@ -36,7 +36,7 @@ The agent detects its launch app, reads the matching skill, and runs `python3 di
 - [`bb_app.py`](../director/bb_app.py) and [`cmux_app.py`](../director/cmux_app.py) are the read-only app adapters.
 - [`memory.py`](../director/memory.py) holds review memory, cooldown, and the dormant sampler. [`log.py`](../director/log.py) records reviews, corrections, and stats.
 - `tests/` holds the unit tests and fake-CLI workflow tests. `docs/` holds scope, open questions, and reference material.
-- `private/` holds personal rules in `judgment/`, the review log in `log.jsonl`, and saved scans in `scans/`. It is gitignored.
+- `profile/` holds personal rules, settings, priorities, and durable lessons. `state/` holds the review log, scans, temporary lessons, and launch records. Both are gitignored. `private/` is unrelated private storage. See [profile.md](profile.md).
 
 ## App selection
 
@@ -47,7 +47,7 @@ The bb adapter calls `bb` only. The cmux adapter calls `cmux` and reads `~/.cmux
 ## Commands
 
 ```bash
-# Read-only scan, saved to private/scans/
+# Read-only scan, saved to state/scans/
 python3 director/scan.py [--hours N] [--seed N]
 
 # Record an operator correction; add --lesson JSON for a scoped lesson (see memory.md)
@@ -63,12 +63,12 @@ python3 director/log.py stats
 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
 
-See [ROLE.md](../ROLE.md#what-you-do) for the `director/log.py run` flags and review workflow, and the app skills for delivery outcomes and confirmation commands. CLI tests never message real agents.
+See [ROLE.md](../ROLE.md#review-workflow) for the `director/log.py run` flags and review workflow, and the app skills for delivery outcomes and confirmation commands. CLI tests never message real agents.
 
 ## Review behavior
 
 - Manual approval is required before every message or interaction response.
-- Random spot checks are off (`SPOT_CHECK_CHANCE = 0.0`, Q27). The weighted sampler stays in `memory.py` so past scans replay with `--seed`.
-- An unchanged `leave` decision sleeps for 60 minutes after the last recorded review. A meaningful state change makes the agent eligible immediately. Scanning alone does not reset the cooldown.
+- Random spot checks default to off. Review timing and sampling settings come from `profile/settings.json`; the weighted sampler and `--seed` remain available for replay.
+- By default, an unchanged `leave` decision sleeps for 60 minutes after the last recorded review. A meaningful state change makes the agent eligible immediately. Scanning alone does not reset the cooldown.
 - Historical logs and scans stay valid. Old records without a state snapshot remain eligible until reviewed with a new scan.
-- Agents the operator wrote to in the last 3 minutes are skipped.
+- By default, agents the operator wrote to in the last 3 minutes are skipped.

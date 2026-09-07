@@ -47,6 +47,7 @@ class ReleaseTests(unittest.TestCase):
                 "director/director/launch.py", "director/director/lifecycle.py",
                 "director/director/scan.py", "director/ROLE.md",
                 "director/docs/memory.md",
+                "director/docs/profile.md",
                 "director/.agents/skills/director-bb/SKILL.md",
                 "director/.agents/skills/director-cmux/SKILL.md",
             ):
@@ -65,7 +66,8 @@ class ReleaseTests(unittest.TestCase):
     def test_private_files_credentials_and_unlisted_code_are_excluded(self):
         secret = "PRIVATE-CREDENTIAL-MARKER"
         for relative in (
-            "private/log.jsonl", "private/judgment/what.md", ".env", ".env.production",
+            "private/log.jsonl", "private/judgment/what.md", "profile/qa.md",
+            "profile/settings.json", "profile/lessons.jsonl", "state/config.json", "state/log.jsonl", ".env", ".env.production",
             ".git/config", "director/.env", "director/credentials.py",
             "director/__pycache__/scan.pyc", "tests/test_secret.py", ".ssh/id_rsa",
             ".agents/skills/director-bb/.env", ".agents/skills/other/SKILL.md",
@@ -76,7 +78,8 @@ class ReleaseTests(unittest.TestCase):
             for member in archive.getmembers():
                 if member.isfile():
                     self.assertNotIn(secret.encode(), archive.extractfile(member).read())
-            self.assertFalse(any("private" in Path(name).parts for name in archive.getnames()))
+            self.assertFalse(any({"profile", "state", "private"} & set(Path(name).parts)
+                                 for name in archive.getnames()))
             self.assertNotIn("director/director/credentials.py", archive.getnames())
             self.assertNotIn("director/tests/test_secret.py", archive.getnames())
 

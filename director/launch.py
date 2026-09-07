@@ -14,8 +14,8 @@ import tempfile
 import uuid
 
 CMUX_BUNDLED = Path('/Applications/cmux.app/Contents/Resources/bin/cmux')
-PROMPT = ('Read ROLE.md and become the Director. Read the app skill and private judgment '
-          'files before your first dry run. Preserve manual approval for every agent action '
+PROMPT = ('Read ROLE.md and become the Director. Read the app skill and profile/ teaching and settings '
+          'before your first dry run. Preserve manual approval for every agent action '
           'and keep recurring automation disabled.')
 
 
@@ -86,10 +86,10 @@ def _save(path, value):
             os.unlink(temporary)
 
 
-def _ledger(private):
-    value = _load(private / 'launches.json', {'schema': 1, 'projects': [], 'sessions': []})
+def _ledger(state):
+    value = _load(state / 'launches.json', {'schema': 1, 'projects': [], 'sessions': []})
     if value.get('schema') != 1 or any(not isinstance(value.get(k), list) for k in ('projects', 'sessions')):
-        raise LaunchError(f'Invalid ownership records in {private / "launches.json"}.')
+        raise LaunchError(f'Invalid ownership records in {state / "launches.json"}.')
     return value
 
 
@@ -133,8 +133,8 @@ def _sources_match(project, record):
                for source in project.get('sources', []))
 
 
-def _bb_project(root, private):
-    ledger = _ledger(private)
+def _bb_project(root, state):
+    ledger = _ledger(state)
     projects = _run('bb', 'project', 'list')
     if not isinstance(projects, list):
         raise LaunchError('bb project list returned an unsupported response.')
@@ -148,7 +148,7 @@ def _bb_project(root, private):
                 raise LaunchError('The saved bb project now points elsewhere. Restore it before starting Director.')
             saved['id'] = found['id']
             saved['host_id'] = next(s['hostId'] for s in found['sources'] if _path_matches(s.get('path'), saved))
-            _save(private / 'launches.json', ledger)
+            _save(state / 'launches.json', ledger)
             return saved
     record = {'root': str(root), 'resolved_root': str(root.resolve())}
     matches = [p for p in projects if _sources_match(p, record)]
@@ -160,25 +160,25 @@ def _bb_project(root, private):
     else:
         record.update(name=f'Director {uuid.uuid4().hex[:12]}', owned=True)
         ledger['projects'].append(record)
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
         project = _run('bb', 'project', 'create', '--name', record['name'], '--root', str(root))
         project = project.get('project', project)
         record['id'] = project['id']
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
     sources = [s for s in project.get('sources', []) if _path_matches(s.get('path'), record)]
     if len(sources) != 1 or not sources[0].get('hostId'):
         raise LaunchError('Cannot determine the local bb project machine. Open the project in bb and retry.')
     record['host_id'] = sources[0]['hostId']
     if not record['owned']:
         ledger['projects'].append(record)
-    _save(private / 'launches.json', ledger)
+    _save(state / 'launches.json', ledger)
     return record
 
 
-def configure(app, provider, model, root: Path, private: Path, interactive=True):
+def configure(app, provider, model, root: Path, state: Path, interactive=True):
     """Choose installed tooling; existing choices win unless explicitly overridden."""
     root = root.absolute()
-    previous = _load(private / 'config.json', {})
+    previous = _load(state / 'config.json', {})
     apps = []
     for candidate in ('bb', 'cmux'):
         try:
@@ -193,7 +193,7 @@ def configure(app, provider, model, root: Path, private: Path, interactive=True)
     reuse = previous if previous.get('app') == app else {}
     config = {'app': app}
     if app == 'bb':
-        project = _bb_project(root, private)
+        project = _bb_project(root, state)
         host = project['host_id']
         providers = _run('bb', 'provider', 'list', '--machine', host)
         eligible = [p['id'] for p in providers if p.get('available') and
@@ -303,16 +303,16 @@ def _cmux_live(record):
     return found
 
 
-def start(config: dict, root: Path, private: Path) -> None:
+def start(config: dict, root: Path, state: Path) -> None:
     root = root.absolute()
     if config.get('app') not in ('bb', 'cmux'):
         raise LaunchError('Run director setup before director start.')
-    ledger = _ledger(private)
+    ledger = _ledger(state)
     for record in ledger['sessions']:
         if record['app'] != config['app'] or record.get('stopped'):
             continue
         live = _bb_live(record) if record['app'] == 'bb' else _cmux_live(record)
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
         if live:
             if record.get('phase') != 'started':
                 raise LaunchError('A previous launch was interrupted. Close its Director session in the app, then retry.')
@@ -327,7 +327,7 @@ def start(config: dict, root: Path, private: Path) -> None:
         record.update(project_id=config['project_id'], host_id=config['host_id'],
                       title='DIRECTOR', marker=f'Managed Director launch: {uuid.uuid4()}.')
     ledger['sessions'].append(record)
-    _save(private / 'launches.json', ledger)
+    _save(state / 'launches.json', ledger)
     if record['app'] == 'bb':
         result = _run('bb', 'thread', 'spawn', '--project', config['project_id'],
                       '--environment', str(root), '--machine', config['host_id'],
@@ -336,20 +336,20 @@ def start(config: dict, root: Path, private: Path) -> None:
                       '--prompt', PROMPT + '\n' + record['marker'])
         thread = result.get('thread', result)
         record['id'] = thread.get('id') or result.get('threadId')
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
         if not record['id'] or not _bb_live(record):
             raise LaunchError('bb did not confirm the new Director thread. Check the app before retrying.')
     else:
         result = _run('cmux', 'new-workspace', '--name', record['title'], '--cwd', str(root), '--focus', 'false')
         record['id'] = _identifier(result, 'workspace')
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
         if not _cmux_live(record):
             raise LaunchError('cmux did not confirm the Director workspace. Check the app before retrying.')
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
         provider = config['provider']
         if provider not in ('claude', 'codex'):
             raise LaunchError('Run director setup and select Claude or Codex for cmux.')
-        command = [provider, '--add-dir', str(private)]
+        command = [provider, '--add-dir', str(root / 'profile'), '--add-dir', str(state)]
         if provider == 'codex':
             command += ['--sandbox', 'workspace-write', '--ask-for-approval', 'on-request']
         else:
@@ -360,17 +360,17 @@ def start(config: dict, root: Path, private: Path) -> None:
         # Keep the shell's cmux agent wrappers, which supply Claude's shared hooks.
         text = 'unset BB_THREAD_ID BB_PROJECT_ID BB_ENVIRONMENT_ID; ' + shlex.join(command)
         record['phase'] = 'sending'
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
         _run('cmux', 'send', '--workspace', record['id'], '--surface', record['surface_id'], '--', text, as_json=False)
         _run('cmux', 'send-key', '--workspace', record['id'], '--surface', record['surface_id'], 'enter', as_json=False)
     record['phase'] = 'started'
-    _save(private / 'launches.json', ledger)
+    _save(state / 'launches.json', ledger)
     print(f'Director started in {record["app"]}: {record["id"]}. Open that session to finish any provider sign-in or trust prompt.')
 
 
-def stop_owned(root: Path, private: Path, purge=False) -> None:
+def stop_owned(root: Path, state: Path, purge=False) -> None:
     """Fail closed: the installer must retain files when this cannot verify a stop."""
-    ledger = _ledger(private)
+    ledger = _ledger(state)
     for record in ledger['sessions']:
         if record.get('purged'):
             continue
@@ -394,7 +394,7 @@ def stop_owned(root: Path, private: Path, purge=False) -> None:
             raise LaunchError('Unknown app in Director ownership records. Installation has been preserved.')
         record['stopped'] = True
         record['purged'] = bool(purge)
-        _save(private / 'launches.json', ledger)
+        _save(state / 'launches.json', ledger)
     if purge:
         for project in ledger['projects']:
             if not project.get('owned') or project.get('purged'):
@@ -410,4 +410,4 @@ def stop_owned(root: Path, private: Path, purge=False) -> None:
                     raise LaunchError('The Director bb project contains other threads. Move them to another project before purging.')
                 _run('bb', 'project', 'delete', current['id'], '--yes')
             project['purged'] = True
-            _save(private / 'launches.json', ledger)
+            _save(state / 'launches.json', ledger)

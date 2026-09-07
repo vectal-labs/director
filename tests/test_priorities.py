@@ -94,7 +94,7 @@ class PriorityCliTests(unittest.TestCase):
         self.app = test_cli.CliTests()
         self.app.setUp()
         self.addCleanup(self.app.doCleanups)
-        self.config_path = self.app.root / "private" / "priorities.json"
+        self.config_path = self.app.root / "profile" / "priorities.json"
         self.config_path.parent.mkdir()
 
     def settings(self, config):
@@ -113,7 +113,7 @@ class PriorityCliTests(unittest.TestCase):
         self.assertEqual(first["priority_config"], config)
         self.assertEqual(first["candidates"][1]["priority_weight"], 0.5)
         self.assertEqual(first["candidates"][1]["priority_source"], "project")
-        saved = self.app.root / "private" / first["scan"]
+        saved = self.app.root / first["scan"]
         saved_bytes = saved.read_bytes()
         self.assertEqual(json.loads(saved_bytes), first)
         self.app.log_review(first)
@@ -135,7 +135,7 @@ class PriorityCliTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("projects.p must be a finite number greater than zero", result.stderr)
         self.assertEqual(self.app.called(), [])
-        self.assertFalse((self.app.root / "private" / "scans").exists())
+        self.assertFalse((self.app.root / "state" / "scans").exists())
 
     def test_high_weights_do_not_include_running_or_recently_contacted_threads(self):
         data = self.app.fixture["bb"]

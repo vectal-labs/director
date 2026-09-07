@@ -1,6 +1,8 @@
 # Open questions
 
-Current priority: make Director useful for David now. Review implementation uncertainties when they affect that use; defer hypothetical release work (05-09-2026).
+Current boundary: the shared system loads personal teaching from `profile/` and
+operational records from `state/`. `private/` is unrelated storage. This updates
+the placement and starter-file discussion below; see `docs/profile.md`.
 
 1. **Public rules — deferred.** The earlier “resolved” conclusion was incorrect. Keep using David’s full rules and history. Public starter-file contents are a later release question, not current implementation work. See `docs/scope.md` and `private/qa.md`.
 2. **Naming — deferred unless it affects current use.** The role says “operator”; the persisted log schema still says “David”. Do not do a naming migration only for hypothetical future users.
