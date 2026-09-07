@@ -4,40 +4,24 @@ Director helps keep your coding agents moving in bb or cmux. It reviews stopped 
 
 ## Quick start
 
-**Requires:** macOS, Python 3.9+, Git, and either `bb` on your `PATH` or cmux installed in `/Applications` (or its CLI on your `PATH`). No Python packages to install.
+**Requires:** macOS, Python 3.9+, and bb or cmux with an authenticated agent provider. No Python packages to install.
 
-**1. Install**
-
-```bash
-git clone https://github.com/vectal-labs/director.git ~/code/director
-cd ~/code/director
-python3 director/setup.py --app bb  # or --app cmux
+```sh
+curl -fsSL https://raw.githubusercontent.com/vectal-labs/director/main/install.sh | sh
 ```
 
-<details>
-<summary>Extra setup for cmux</summary>
+Setup chooses your app and agent, creates starter rules, and starts Director. Your provider may ask you to trust the folder or sign in. Review the rules in `~/.local/share/director/private/judgment/` before approving actions.
 
-Run this once so your agents report their state:
-
-```bash
-cmux hooks setup
+```sh
+director start
+director update
+director uninstall          # keep rules and history
+director uninstall --purge  # also remove personal data
 ```
 
-</details>
+For cmux, run `cmux hooks setup` so watched agents report their state. Say **“scan”** or **“next”** when you want a review. Recurring scans require a separate instruction.
 
-**2. Set your rules**
-
-Setup creates example rules in `private/judgment/`. Edit `what.md`, `how.md`, and `limits.md` to describe what Director should do, how it should work, and when it should ask you. Existing files are kept when you rerun setup.
-
-**3. Start**
-
-Use a frontier model. In bb, open a thread on this repo. In cmux, open a terminal in this repo and start your coding agent, such as `claude` or `codex`. Send:
-
-```text
-Read ROLE.md and be the Director.
-```
-
-Say **“scan”** or **“next”** whenever you want it to review an agent. Reviews are manual for now; recurring scans require a separate instruction.
+See [installation options and removal](docs/install.md). To work from source, clone this repo, run `python3 director/setup.py --app bb` (or `cmux`), then tell your agent: `Read ROLE.md and be the Director.`
 
 ## How it behaves
 

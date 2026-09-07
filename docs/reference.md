@@ -1,6 +1,6 @@
 # Technical reference
 
-For installation and launch, see the [quick start](../README.md#quick-start).
+For installation and launch, see the [quick start](../README.md#quick-start) and [installer lifecycle](install.md). The commands below remain available for source checkouts.
 
 ## Setup and personal rules
 

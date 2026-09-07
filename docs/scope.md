@@ -11,4 +11,4 @@
 - Build those skills as shorter, simpler versions of the existing `cmux`, `nagent`, and `bb-cli` skills, containing only what Director needs.
 - Add hooks and guardrails only when a real need appears.
 - Keep the system as simple and minimal as possible.
-- Open-source release remains a later goal. Decide public starter-file contents when preparing that release; keep using David’s actual rules and history now.
+- Installer work was explicitly authorized on 07-09-2026: one-command setup, launch, update, uninstall, and release assets. Keep source-checkout rules and history untouched; installed copies use the existing setup examples. See `install.md`.

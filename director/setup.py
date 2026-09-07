@@ -36,7 +36,9 @@ No answers yet. Append each question and my exact answer as Q01, Q02, and so on.
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", required=True, choices=("bb", "cmux"), help="the app you will use")
+    parser.add_argument("--quiet", action="store_true", help="suppress instructions when called by the installer")
     args = parser.parse_args()
+    say = (lambda *a, **kw: None) if args.quiet else print
     if sys.platform != "darwin":
         parser.exit(1, "This setup supports macOS.\n")
     if sys.version_info < (3, 9):
@@ -51,7 +53,7 @@ def main():
         hint = ("Install cmux in /Applications or add its CLI to PATH." if args.app == "cmux"
                 else "Install bb and add its CLI to PATH.")
         parser.exit(1, f"Missing {args.app} CLI. {hint} Then run setup again.\n")
-    print(f"Requirements OK: macOS, Python {sys.version.split()[0]}, {args.app} CLI.")
+    say(f"Requirements OK: macOS, Python {sys.version.split()[0]}, {args.app} CLI.")
 
     try:
         judgment = ROOT / "private" / "judgment"
@@ -61,18 +63,18 @@ def main():
             try:
                 with path.open("x", encoding="utf-8") as file:
                     file.write(text)
-                print(f"Created private/judgment/{name}")
+                say(f"Created private/judgment/{name}")
             except FileExistsError:
                 if not path.is_file():
                     raise ValueError(f"private/judgment/{name} must be a file")
-                print(f"Kept private/judgment/{name}")
+                say(f"Kept private/judgment/{name}")
     except (OSError, ValueError) as error:
         parser.exit(1, f"Could not set up rule files: {error}\n")
 
-    print("\nRead and edit the rules in private/judgment/ before starting.")
+    say("\nRead and edit the rules in private/judgment/ before starting.")
     if args.app == "cmux":
-        print("Run cmux hooks setup once so your agents report their state.")
-    print(f"Open this repo in {args.app} and tell your agent: Read ROLE.md and be the Director.")
+        say("Run cmux hooks setup once so your agents report their state.")
+    say(f"Open this repo in {args.app} and tell your agent: Read ROLE.md and be the Director.")
 
 
 if __name__ == "__main__":

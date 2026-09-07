@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check installer syntax
+        run: sh -n install.sh
+      - name: Run lifecycle and runtime tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Build release assets
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: python3 scripts/build_release.py --version "$RELEASE_VERSION" --output "$RUNNER_TEMP/director-release"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            "$RUNNER_TEMP/director-release/director-$RELEASE_VERSION.tar.gz" \
+            "$RUNNER_TEMP/director-release/SHA256SUMS" \
+            "$RUNNER_TEMP/director-release/install.sh" \
+            --verify-tag --title "Director $RELEASE_VERSION" --generate-notes
