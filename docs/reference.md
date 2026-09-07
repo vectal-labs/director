@@ -9,7 +9,9 @@ For installation and launch, see the [quick start](../README.md#quick-start) and
 - `what.md`: what Director should do.
 - `how.md`: how it should work.
 - `limits.md`: when it must ask you.
-- `qa.md`: your answers and corrections, numbered Q01, Q02, and so on.
+- `qa.md`: your exact answers and corrections, numbered Q01, Q02, and so on; interpretations and scope are labeled separately.
+
+See [scoped correction memory](memory.md) for lesson kinds, boundaries, and ending temporary instructions. Review history remains append-only.
 
 Read and edit the examples before starting. Share the Git repo with teammates; each person keeps their own rules and history in gitignored `private/`.
 
@@ -48,8 +50,11 @@ The bb adapter calls `bb` only. The cmux adapter calls `cmux` and reads `~/.cmux
 # Read-only scan, saved to private/scans/
 python3 director/scan.py [--hours N] [--seed N]
 
-# Record an operator correction
+# Record an operator correction; add --lesson JSON for a scoped lesson (see memory.md)
 python3 director/log.py override --run N --david "..." --decision unblock --rule Qnn
+
+# End a lesson after verifying its ending condition or operator withdrawal
+python3 director/log.py end-lesson --id N.1 --evidence "..."
 
 # Review statistics
 python3 director/log.py stats

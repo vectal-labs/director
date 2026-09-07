@@ -16,7 +16,7 @@ import uuid
 
 VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 RELEASES = "https://github.com/vectal-labs/director/releases"
-WORKSPACE_LINKS = {name: "current/" + name for name in ("ROLE.md", "AGENTS.md", "CLAUDE.md", ".gitignore", "director", ".agents", ".claude")}
+WORKSPACE_LINKS = {name: "current/" + name for name in ("ROLE.md", "AGENTS.md", "CLAUDE.md", ".gitignore", "director", "docs", ".agents", ".claude")}
 LINKS = {"CLAUDE.md": "AGENTS.md", "director/CLAUDE.md": "AGENTS.md",
          ".claude/skills": "../.agents/skills"}
 

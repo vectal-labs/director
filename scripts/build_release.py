@@ -32,6 +32,7 @@ INSTRUCTION_FILES = (
     "AGENTS.md",
     "ROLE.md",
     "director/AGENTS.md",
+    "docs/memory.md",
     ".agents/skills/director-bb/SKILL.md",
     ".agents/skills/director-cmux/SKILL.md",
 )

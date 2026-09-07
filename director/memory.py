@@ -1,6 +1,7 @@
 """JSONL review history and the scan's repeat-review and sampling rules."""
 import datetime as dt
 import json
+import math
 import pathlib
 import random
 
@@ -12,6 +13,144 @@ DECISIONS = ("unblock", "leave", "wait_for_david", "deny")
 OUTCOMES = ("sent", "queued", "failed", "skipped")
 RECHECK_SECONDS = 3600
 SPOT_CHECK_CHANCE = 0.0  # Q27: disabled during manual fine-tuning.
+LESSON_KINDS = ("general_preference", "project_decision", "temporary_instruction", "exception")
+
+
+def lesson_deadline(value):
+    if not isinstance(value, str):
+        raise ValueError("expires_at must be an ISO timestamp with a timezone")
+    try:
+        date = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError("expires_at must be an ISO timestamp with a timezone") from error
+    if date.tzinfo is None:
+        raise ValueError("expires_at must include a timezone")
+    return date.timestamp()
+
+
+def validate_lesson(lesson, bound=False):
+    fields = {"kind", "scope", "interpretation", "reason", "applies_when", "ends_when", "expires_at"}
+    if bound:
+        fields |= {"id", "app", "target"}
+    if not isinstance(lesson, dict) or set(lesson) - fields:
+        raise ValueError("lesson must be an object containing only the documented fields")
+    if lesson.get("kind") not in LESSON_KINDS:
+        raise ValueError("unknown lesson kind")
+    scope = lesson.get("scope", "thread")
+    if scope not in {"general", "project", "thread"}:
+        raise ValueError("lesson scope must be general, project, or thread")
+    for field in ("interpretation", "reason", "applies_when"):
+        if not isinstance(lesson.get(field), str) or not lesson[field].strip():
+            raise ValueError(f"lesson {field} must be nonblank text")
+    if lesson["kind"] == "project_decision" and scope != "project":
+        raise ValueError("a project decision needs project scope")
+    if lesson["kind"] == "exception" and scope != "thread":
+        raise ValueError("an exception stays within its original thread/session")
+    if "ends_when" in lesson and (not isinstance(lesson["ends_when"], str) or not lesson["ends_when"].strip()):
+        raise ValueError("ends_when must describe a real ending condition")
+    if "expires_at" in lesson:
+        lesson_deadline(lesson["expires_at"])
+    if lesson["kind"] == "temporary_instruction" and not (lesson.get("ends_when") or lesson.get("expires_at")):
+        raise ValueError("a temporary instruction needs ends_when or expires_at")
+    if bound:
+        if not {"id", "scope", "app", "target"}.issubset(lesson):
+            raise ValueError("stored lesson needs its explicit scope binding")
+        if not isinstance(lesson.get("id"), str) or not lesson["id"].strip():
+            raise ValueError("stored lesson needs an id")
+        if scope == "general":
+            if lesson.get("app") is not None or lesson.get("target") is not None:
+                raise ValueError("general lessons cannot carry a project/thread binding")
+        elif (lesson.get("app") not in {"bb", "cmux"}
+              or not isinstance(lesson.get("target"), str) or not lesson["target"].strip()):
+            raise ValueError("stored lesson needs an app and a stable scope target")
+
+
+def new_lesson(value, review):
+    """Bind scope to recorded evidence, never a model-supplied target or title."""
+    validate_lesson(value)
+    lesson = dict(value, scope=value.get("scope", "thread"))
+    scope = lesson["scope"]
+    app, target = None, None
+    if scope != "general":
+        app = review.get("app")
+        if app not in {"bb", "cmux"}:
+            raise ValueError("scoped lessons require a review recorded with --scan")
+        if scope == "project":
+            target = review.get("project")
+        else:
+            target = review.get("review_key") if app == "cmux" else review["picked"]
+        if not target:
+            raise ValueError("the original review lacks a verified scope target; record a new review with --scan")
+    lesson.update(id=f"{review['run']}.{len(review.get('corrections', [])) + 1}", app=app, target=target)
+    validate_lesson(lesson, bound=True)
+    return lesson
+
+
+def lesson_corrections(runs):
+    for review in runs:
+        for correction in review.get("corrections", []):
+            if correction.get("lesson"):
+                yield review, correction
+
+
+def find_lesson(runs, lesson_id):
+    for review, correction in lesson_corrections(runs):
+        if correction["lesson"]["id"] == lesson_id:
+            return review, correction
+    raise ValueError(f"no lesson {lesson_id}")
+
+
+def attach_lessons(candidates, runs, now, app):
+    """Select possible precedents; the model must still check applies_when."""
+    active = []
+    for review, correction in lesson_corrections(runs):
+        lesson = correction["lesson"]
+        if correction.get("lesson_ended") or (lesson.get("expires_at") and now >= lesson_deadline(lesson["expires_at"])):
+            continue
+        active.append({**lesson, "david": correction["david"], "run": review["run"],
+                       "rule": correction.get("rule"), "recorded_at": correction.get("ts")})
+    for candidate in candidates:
+        matches = []
+        for lesson in active:
+            scope = lesson["scope"]
+            target = candidate.get("project") if scope == "project" else (
+                candidate.get("review_key") if app == "cmux" else candidate["id"])
+            if scope == "general" or (lesson["app"] == app and lesson["target"] == target):
+                matches.append(lesson)
+        candidate["lessons"] = matches
+
+
+def read_priorities(path=None):
+    """Load optional personal priorities; reject mistakes instead of ignoring them."""
+    path = pathlib.Path(path) if path is not None else PRIVATE / "priorities.json"
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"projects": {}, "threads": {}}
+    except (OSError, ValueError) as error:
+        raise ValueError(f"cannot read priorities file {path}: {error}") from error
+    if not isinstance(config, dict) or set(config) - {"projects", "threads"}:
+        raise ValueError(f"{path}: expected an object with only projects and threads")
+    for group in ("projects", "threads"):
+        weights = config.setdefault(group, {})
+        if not isinstance(weights, dict):
+            raise ValueError(f"{path}: {group} must be an object mapping IDs to weights")
+        for key, weight in weights.items():
+            if not key.strip():
+                raise ValueError(f"{path}: {group} IDs must not be empty")
+            if (type(weight) not in (int, float) or weight <= 0
+                    or (isinstance(weight, float) and not math.isfinite(weight))):
+                raise ValueError(f"{path}: {group}.{key} must be a finite number greater than zero")
+    return config
+
+
+def priority(row, config):
+    """Thread overrides replace project weights; names and titles are not keys."""
+    for group, key, source in (("threads", row.get("review_key") or row["id"], "thread"),
+                               ("projects", row.get("project"), "project")):
+        if key in config.get(group, {}):
+            return {"priority_weight": config[group][key], "priority_source": source, "priority_key": key}
+    return {"priority_weight": 1.0, "priority_source": "default", "priority_key": None}
 
 
 def timestamp():
@@ -55,18 +194,32 @@ def apply_outcome(review, event):
 def read(text=None):
     if text is None:
         text = LOG.read_text() if LOG.exists() else ""
-    runs = {}
+    runs, lesson_ids = {}, set()
     for number, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
         try:
             row = json.loads(line)
             run = row["run"]
-            if row.get("kind") == "outcome":
+            if row.get("kind") == "lesson_end":
+                review, correction = find_lesson(list(runs.values()), row["lesson_id"])
+                if (review["run"] != run or correction.get("lesson_ended")
+                        or not isinstance(row.get("evidence"), str) or not row["evidence"].strip()):
+                    raise ValueError("invalid lesson ending")
+                dt.datetime.fromisoformat(row["ts"])
+                correction["lesson_ended"] = row
+            elif row.get("kind") == "outcome":
                 apply_outcome(runs[run], row)
             elif row.get("kind") == "override":
                 if row["decision"] not in DECISIONS:
                     raise ValueError("invalid correction")
+                if "lesson" in row:
+                    validate_lesson(row["lesson"], bound=True)
+                    if (row["lesson"]["id"] in lesson_ids or not isinstance(row.get("david"), str)
+                            or not row["david"].strip()):
+                        raise ValueError("invalid lesson source")
+                    lesson_ids.add(row["lesson"]["id"])
+                runs[run]["corrections"].append(row)
                 runs[run]["david_override"] = row
             else:
                 if run in runs or row["decision"] not in DECISIONS:
@@ -75,6 +228,8 @@ def read(text=None):
                 dt.datetime.fromisoformat(row["ts"])
                 if row.get("action_status", "unknown") not in {"none", "proposed", "unknown"}:
                     raise ValueError("action results must follow the original review")
+                # Legacy inline overrides are evidence, with no inferred lesson scope.
+                row["corrections"] = [row["david_override"]] if row.get("david_override") else []
                 runs[run] = row
         except (ValueError, KeyError, TypeError) as error:
             raise ValueError(f"log.jsonl line {number}: invalid record") from error
@@ -96,9 +251,10 @@ def histories(runs):
     return result
 
 
-def rank(candidates, runs, now, seed):
+def rank(candidates, runs, now, seed, priorities=None):
     history = histories(runs)
     for row in candidates:
+        row.update(priority(row, priorities or {}))
         previous = history.get(row.get("review_key") or row["id"])
         elapsed, changed, reason = None, None, "never_reviewed"
         if previous:
@@ -124,7 +280,7 @@ def rank(candidates, runs, now, seed):
         row["random_weight"] = max(1, min(1440, elapsed / 60)) if elapsed is not None else 1440
     candidates.sort(key=lambda r: (not r["review_eligible"], not r["pending_interaction"],
                                    r["recent_error"] is None, not r["ends_with_question"],
-                                   r["idle_min"], r["id"]))
+                                   -r["priority_weight"], r["idle_min"], r["id"]))
     eligible = [r for r in candidates if r["review_eligible"]]
     rng = random.Random(seed)
     draw = rng.random()

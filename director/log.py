@@ -32,6 +32,7 @@ def scan_record(path, picked):
     if scan.get("app") == "cmux" and not review_key and candidate.get("provider") and candidate.get("session"):
         review_key = f"cmux:{candidate['provider']}:{candidate['session']}"
     return {"app": scan.get("app"), "review_key": review_key,
+            "project": candidate.get("project"),
             "reviewed_state": candidate.get("state"), "scan_selection": scan.get("selection"),
             "selection_reason": candidate.get("eligibility_reason"), "spot_check": candidate.get("spot_check", False)}
 
@@ -105,9 +106,24 @@ def record(args):
                    "candidates": args.candidates, "skipped": args.skipped, "scan": args.scan,
                    "david_override": None, **snapshot}
         elif args.cmd == "override":
-            find_run(rows, args.run)
+            review = find_run(rows, args.run)
             row = {"kind": "override", "run": args.run, "ts": memory.timestamp(),
                    "david": args.david, "decision": args.decision, "rule": args.rule}
+            if args.lesson is not None:
+                if not args.david.strip():
+                    raise ValueError("a lesson needs the operator's exact, nonblank words")
+                value = json.loads(args.lesson)
+                if isinstance(value, dict) and value.get("scope") == "project" and not review.get("project") and review.get("scan"):
+                    review = {**review, **scan_record(review["scan"], review["picked"])}
+                row["lesson"] = memory.new_lesson(value, review)
+        elif args.cmd == "end-lesson":
+            review, correction = memory.find_lesson(rows, args.id)
+            if correction.get("lesson_ended"):
+                raise ValueError(f"lesson {args.id} already ended")
+            if not args.evidence.strip():
+                raise ValueError("ending a lesson needs evidence that its condition ended or it was withdrawn")
+            row = {"kind": "lesson_end", "run": review["run"], "ts": memory.timestamp(),
+                   "lesson_id": args.id, "evidence": args.evidence}
         else:
             review = find_run(rows, args.run)
             if args.cmd == "confirm":
@@ -130,8 +146,10 @@ def record(args):
             memory.apply_outcome(review, row)
         prefix = "\n" if contents and not contents.endswith("\n") else ""
         file.write(prefix + json.dumps(row, ensure_ascii=False) + "\n")
-    result = row.get("decision") or row["status"]
-    print(f"{args.cmd} {row['run']} logged: {result}" + (f" ({row['detail']})" if args.cmd == "confirm" else ""))
+    result = row.get("decision") or row.get("status") or "ended"
+    print(f"{args.cmd} {row['run']} logged: {result}"
+          + (f" (lesson {row['lesson']['id']})" if row.get("lesson") else "")
+          + (f" ({row['detail']})" if args.cmd == "confirm" else ""))
 
 
 def stats():
@@ -175,6 +193,10 @@ def main():
     override.add_argument("--david", required=True, help="the operator's exact words")
     override.add_argument("--decision", required=True, choices=memory.DECISIONS)
     override.add_argument("--rule")
+    override.add_argument("--lesson", help="JSON context for a scoped lesson; omitted scope defaults to this thread")
+    end_lesson = sub.add_parser("end-lesson", help="append evidence that a lesson ended; preserve the historical correction")
+    end_lesson.add_argument("--id", required=True, help="lesson id printed by override and included in scans")
+    end_lesson.add_argument("--evidence", required=True, help="observed ending condition or operator withdrawal")
     outcome = sub.add_parser("outcome", help="append a delivery result or skipped action to an existing review")
     outcome.add_argument("--run", type=int, required=True)
     outcome.add_argument("--status", choices=memory.OUTCOMES, required=True)

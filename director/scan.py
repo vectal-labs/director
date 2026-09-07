@@ -40,23 +40,28 @@ def main():
         parser.error("--hours must be positive")
     try:
         app = launch_app(args.app)
+        priorities = memory.read_priorities()
     except ValueError as error:
         parser.error(str(error))
     module = APPS[app]
     self_id = args.self or os.environ[module.SELF_VAR]
     now = time.time()
-    runs = memory.read()
+    try:
+        runs = memory.read()
+    except (ValueError, OSError) as error:
+        parser.exit(1, f"memory read failed: {error}\n")
     try:
         rows, skipped, errors, extras = module.scan(self_id, now, args.hours)
     except module.ERRORS as error:
         parser.exit(1, f"{app} scan failed: {error}\n")
     seed = args.seed if args.seed is not None else random.SystemRandom().getrandbits(64)
-    selection = memory.rank(rows, runs, now, seed)
+    memory.attach_lessons(rows, runs, now, app)
+    selection = memory.rank(rows, runs, now, seed, priorities)
     memory.SCANS.mkdir(parents=True, exist_ok=True)
     path = memory.SCANS / dt.datetime.now().strftime("%Y-%m-%d-%H%M%S-%f.json")
     result = {"app": app, "self": self_id, "scanned_at": dt.datetime.fromtimestamp(now).astimezone().isoformat(),
               "duration_ms": round((time.time() - now) * 1000), "hours": args.hours, **extras,
-              "scan": f"scans/{path.name}", "selection": selection, "candidates": rows,
+              "scan": f"scans/{path.name}", "selection": selection, "priority_config": priorities, "candidates": rows,
               "skipped_user_recent": skipped, "coverage": "partial" if errors else "full", "errors": errors}
     output = json.dumps(result, indent=1, ensure_ascii=False)
     path.write_text(output)

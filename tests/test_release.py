@@ -46,6 +46,7 @@ class ReleaseTests(unittest.TestCase):
                 "director/director/cli.py", "director/director/install.py",
                 "director/director/launch.py", "director/director/lifecycle.py",
                 "director/director/scan.py", "director/ROLE.md",
+                "director/docs/memory.md",
                 "director/.agents/skills/director-bb/SKILL.md",
                 "director/.agents/skills/director-cmux/SKILL.md",
             ):

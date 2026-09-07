@@ -190,6 +190,8 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "v1.0.0")
         self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
         self.assertTrue((self.managed / "current/ROLE.md").is_file())
+        self.assertEqual((self.managed / "docs/memory.md").read_text(),
+                         (REPO / "docs/memory.md").read_text())
         self.assertTrue((self.managed / "current/.claude/skills/director-bb/SKILL.md").is_file())
         self.assertEqual((self.managed / "current/private").resolve(), (self.managed / "private").resolve())
         self.assertTrue(os.access(self.binary, os.X_OK))

@@ -19,6 +19,7 @@ EXAMPLES = {
 - Review 1 stopped agent when I ask.
 - Show the exact proposed action and your reason before asking for approval.
 - Keep replies short and clear.
+- Keep corrections scoped: general preference, project decision, temporary instruction, or exception. See ROLE.md and docs/memory.md.
 """,
     "limits.md": """# Limits
 
@@ -29,6 +30,7 @@ EXAMPLES = {
     "qa.md": """# Questions and corrections
 
 No answers yet. Append each question and my exact answer as Q01, Q02, and so on.
+Keep the agent's interpretation, reason, scope, applicable situation, and any ending condition separate from my words. Missing context is unknown, not permission to generalize.
 """,
 }
 
