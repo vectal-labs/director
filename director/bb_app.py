@@ -148,3 +148,79 @@ def scan(self_id, now, hours=None, recent_user_seconds=180):
     threads = bb("thread", "list")
     candidates, skipped, errors = collect(threads, now, self_id, host, hours, recent_user_seconds)
     return candidates, skipped, errors, {"host": host, "listed": len(threads)}
+
+
+def learning_sessions(self_id, project=None, session=None):
+    """Inventory for observation, independent of intervention eligibility."""
+    host = bb('status')['thread']['environment']['hostId']
+    if not isinstance(host, str) or not host:
+        raise ValueError('bb status did not return an environment host ID')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        current = pool.submit(bb, 'thread', 'list')
+        archived = pool.submit(bb, 'thread', 'list', '--archived')
+        groups = [current.result(), archived.result()]
+    rows = {}
+    for group in groups:
+        if not isinstance(group, list):
+            raise ValueError('bb thread list did not return threads')
+        for thread in group:
+            if (thread['id'] == self_id or thread.get('deletedAt')
+                    or thread.get('visibility') == 'hidden' or thread.get('environmentHostId') != host):
+                continue
+            if project and thread.get('projectId') != project:
+                continue
+            if session and thread['id'] != session:
+                continue
+            rows[thread['id']] = {
+                'id': thread['id'], 'title': thread.get('title') or thread.get('titleFallback') or '',
+                'project': thread.get('projectId'), 'status': thread['status'],
+                'updated': thread['updatedAt'], 'archived': bool(thread.get('archivedAt')),
+            }
+    return list(rows.values())
+
+
+def learning_context(session, limit):
+    events = bb('thread', 'log', session['id'], '--all')
+    validate_events(events)
+    messages, seen = [], set()
+    for event in events:
+        role, text, non_text = None, '', False
+        if event['type'] not in {'client/turn/requested', 'item/completed'}:
+            continue
+        data = event['data']
+        if event['type'] == 'client/turn/requested':
+            initiator = data.get('initiator')
+            if data.get('senderThreadId') or initiator == 'agent':
+                role = 'agent_input'
+            elif initiator == 'system' or data.get('systemMessageKind') not in {None, 'unlabeled'}:
+                role = 'system'
+            elif initiator == 'user':
+                role = 'human'
+            else:
+                role = 'unknown'
+            inputs = data.get('input')
+            if not isinstance(inputs, list):
+                raise ValueError('bb prompt is missing input')
+            if any(not isinstance(item, dict) for item in inputs):
+                raise ValueError('bb prompt input is malformed')
+            texts = [item.get('text') for item in inputs if item.get('type') == 'text']
+            if any(not isinstance(value, str) for value in texts):
+                raise ValueError('bb prompt text is malformed')
+            text = '\n'.join(texts)
+            non_text = any(item.get('type') != 'text' for item in inputs)
+        elif event['type'] == 'item/completed' and data['item']['type'] == 'agentMessage':
+            role, text = 'assistant', data['item']['text']
+        if role is None:
+            continue
+        identity = event.get('id') or event.get('seq')
+        if identity is None:
+            raise ValueError('bb conversation event is missing a stable identity')
+        source = f"bb:{session['id']}:{identity}"
+        if source in seen:
+            continue
+        seen.add(source)
+        messages.append({'source': source, 'role': role, 'text': text[:6000],
+                         'at': event['createdAt'], 'seq': event.get('seq'),
+                         'truncated': len(text) > 6000, 'non_text_input': non_text})
+    return {**session, 'messages': messages[-limit:], 'message_count': len(messages),
+            'truncated': len(messages) > limit or any(m['truncated'] for m in messages[-limit:])}

@@ -15,7 +15,8 @@ import uuid
 
 CMUX_BUNDLED = Path('/Applications/cmux.app/Contents/Resources/bin/cmux')
 PROMPT = ('Read ROLE.md and become the Director. Read the app skill and profile/ teaching and settings '
-          'before your first dry run. Preserve manual approval for every agent action '
+          'and load current and previous sessions with python3 director/learning.py observe before your first dry run. '
+          "Proactively ask useful questions about the operator's choices. Preserve manual approval for every agent action "
           'and keep recurring automation disabled.')
 
 

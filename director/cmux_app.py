@@ -233,3 +233,60 @@ def scan(self_surface, now, hours=None, recent_user_seconds=180):
     candidates, skipped, errors, dropped = collect(
         saved["sessions"], live, self_surface, now, lambda: user_input_times(history_path), hours, recent_user_seconds=recent_user_seconds)
     return candidates, skipped, errors, {"workspaces": workspace_count, "listed": len(saved["sessions"]), "dropped": dropped}
+
+
+def learning_sessions(self_id, project=None, session=None):
+    """Include registered historical sessions, even after their terminal closed."""
+    saved = cmux('sessions', 'list', '--all')
+    if not isinstance(saved, dict) or not isinstance(saved.get('sessions'), list):
+        raise ValueError('cmux sessions list did not return sessions')
+    live, _ = terminals(cmux('tree', '--all', '--id-format', 'both'))
+    own_sessions = {(e['agent'], e['session_id']) for e in saved['sessions']
+                    if e['surface_id'].upper() == self_id.upper() and e.get('active_for_surface') is not False}
+    rows = {}
+    for entry in saved['sessions']:
+        surface = entry['surface_id'].upper()
+        if (entry['agent'], entry['session_id']) in own_sessions:
+            continue
+        key = f"cmux:{entry['agent']}:{entry['session_id']}"
+        if project and entry.get('cwd') != project:
+            continue
+        if session and session not in {key, entry['session_id']}:
+            continue
+        row = {'id': key, 'title': live.get(surface, {}).get('title', entry['session_id']),
+               'project': entry.get('cwd'), 'status': status(entry),
+               'updated': entry['updated_at_unix'], 'surface': surface,
+               'transcript_path': entry.get('transcript_path'),
+               'screen_available': surface in live and entry.get('active_for_surface') is True}
+        if key not in rows or row['updated'] > rows[key]['updated']:
+            rows[key] = row
+    return list(rows.values())
+
+
+def learning_context(session, limit):
+    """Keep transcript/screen attribution explicit; never guess who typed a draft."""
+    path = session.get('transcript_path')
+    if path:
+        import stat
+        source_path = pathlib.Path(path).expanduser()
+        if not stat.S_ISREG(source_path.stat().st_mode):
+            raise ValueError('registered transcript is not a regular file')
+        with source_path.open('rb') as file:
+            size = file.seek(0, 2)
+            start = max(0, size - 24000)
+            file.seek(start)
+            if start:
+                file.readline()  # Drop a partial JSONL record.
+            text = file.read().decode('utf-8')
+        source = f"{session['id']}:transcript:{hashlib.sha256(text.encode()).hexdigest()}"
+        detail = {'path': str(source_path), 'truncated': start > 0}
+    elif session['screen_available']:
+        text = cmux('read-screen', '--surface', session['surface'], '--scrollback',
+                    '--lines', str(min(limit * 8, 1000)), as_json=False)
+        source = f"{session['id']}:screen:{hashlib.sha256(text.encode()).hexdigest()}"
+        detail = {'truncated': True}
+    else:
+        raise ValueError('historical session has no registered transcript and no current screen')
+    message = {'source': source, 'role': 'context_unattributed', 'text': text,
+               **detail, 'attribution': 'Verify speakers in the transcript. Screen drafts are not human input.'}
+    return {**session, 'messages': [message], 'truncated': detail['truncated']}

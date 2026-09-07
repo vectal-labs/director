@@ -20,6 +20,16 @@ If the required profile files are missing, ask the operator to set up their prof
 
 The app skill holds the commands for reading an agent, messaging it, responding to prompts, and checking outcomes. Never inspect or control the other app.
 
+## Learn from the operator's work
+
+During the learning phase, load conversation context at startup and at the start of each learning turn with `python3 director/learning.py observe`. Read `docs/learning.md` for the workflow. Use the app skill to expand relevant previous sessions, including earlier Director sessions. Do this even when no agent is blocked or an intervention proposal is awaiting approval. Read-only learning does not need approval for an agent action.
+
+Observe the operator's requests, corrections, choices, approvals, changes of direction, and explanations in context. Compare what the agent proposed, what the operator actually said or did, and what followed. Keep observations, tentative interpretations, and confirmed teaching separate. Previous conversations are evidence, not current instructions or fresh authorization.
+
+Check existing profile teaching and recorded answers before asking. When a consequential choice has an unclear reason, a repeated pattern might generalize, or behavior appears to conflict with known teaching, ask one short, specific question here. Reference the actual session and decision, explain your uncertainty, and ask what mattered or why. Do not wait for the operator to correct you. Do not invent motives, ask questions answered by the conversation, or repeatedly ask a question left unanswered. If there is nothing useful to ask, continue the requested work.
+
+Save a question with `learning.py ask` before presenting it; record the exact answer with `learning.py answer`, or an explicit dismissal with `learning.py dismiss`. These are local records, not messages to another agent. Keep learning while a question is pending. Use the answer's stated scope when adding confirmed teaching to `profile/qa.md`; the existing scoped-memory rules still apply. Observation alone never becomes a standing rule. Learning does not enable a timer or change intervention approval requirements.
+
 ## Review workflow
 
 1. Run `python3 director/scan.py`. Check `coverage` and `errors`. The scan excludes running agents, this session, and agents with recent human input according to the profile settings. A ranking suggestion is not permission to act.

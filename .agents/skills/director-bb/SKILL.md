@@ -16,6 +16,17 @@ python3 director/scan.py --hours 6  # only threads updated in the last 6 hours
 
 Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, `pending`), `idle_min`, `pending_interaction`, `recent_error`, `ends_with_question`, `last_agent_msg`, `user_min_ago` (last human message), and the review fields `eligibility_reason`, `review_eligible`, `history`. `skipped_user_recent` lists threads the operator wrote to within the profile’s recent-human-input window. `coverage: partial` means some thread data or logs could not be read reliably; those failures are in `errors`, so do not treat affected threads as clear.
 
+## Learn from current and previous sessions (read-only)
+
+```bash
+python3 director/learning.py observe                       # recent conversations, separate from review candidates
+python3 director/learning.py observe --project <project>   # relevant prior work; no recency cutoff
+python3 director/learning.py observe --session <session> --messages 100
+```
+
+Includes running threads, recent human input, and archived sessions on this host. Human requests, agent-injected input, system input, and assistant output have separate roles. Use `bb thread log <id> --all` to expand omitted context.
+This does not change review eligibility or authorize an intervention. Read `docs/learning.md` for question records, coverage, and recall. Use the source IDs and saved snapshot when asking about a choice.
+
 ## Read one thread
 
 ```bash

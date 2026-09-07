@@ -27,6 +27,17 @@ Memory follows `review_key` (provider and session), while `id` remains the curre
 
 `input_history_known: false` means recent human input cannot be verified. Such candidates remain visible but are not suggested. Missing or malformed input history makes coverage partial; read `errors` and do not act on affected candidates.
 
+## Learn from current and previous sessions (read-only)
+
+```bash
+python3 director/learning.py observe                       # recent conversations, separate from review candidates
+python3 director/learning.py observe --project <project>   # relevant prior work; no recency cutoff
+python3 director/learning.py observe --session <session> --messages 100
+```
+
+Includes running and retained historical sessions, even when their terminals closed. Reads only transcript paths registered by cmux; falls back to scrollback only for the current session on an open surface. Transcript and screen text is explicitly unattributed: inspect speakers and distinguish submitted human messages from agent input or predicted drafts. Read the registered transcript to expand omitted context. A missing transcript is a coverage gap.
+This does not change review eligibility or authorize an intervention. Read `docs/learning.md` for question records, coverage, and recall. Use the source IDs and saved snapshot when asking about a choice.
+
 ## Read one agent
 
 ```bash

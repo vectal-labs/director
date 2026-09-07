@@ -19,6 +19,7 @@ EXAMPLES = {
     "how.md": """# How to work
 
 - Review 1 stopped agent when I ask.
+- During learning, observe my work and relevant previous sessions. Ask useful questions about my choices and reasons without waiting for me to correct you.
 - Show the exact proposed action and your reason before asking for approval.
 - Keep replies short and clear.
 - Keep corrections scoped: general preference, project decision, temporary instruction, or exception. See ROLE.md and docs/memory.md.

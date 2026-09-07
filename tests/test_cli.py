@@ -24,6 +24,8 @@ if app == "bb" and args == ["status"]:
     result = {"thread": {"environment": {"hostId": "host"}}}
 elif app == "bb" and args == ["thread", "list"]:
     result = data["threads"]
+elif app == "bb" and args == ["thread", "list", "--archived"]:
+    result = data.get("archived", [])
 elif app == "bb" and args[:2] == ["thread", "log"]:
     result = data["events"][args[2]]
 elif app == "bb" and args[:2] == ["thread", "show"]:
