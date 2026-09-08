@@ -16,6 +16,7 @@ import lifecycle
 
 
 def configure(root, args):
+    install.read_templates((root / "current").resolve())
     install.migrate(root)
     state = root / "state"
     workspace = root

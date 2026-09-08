@@ -43,13 +43,22 @@ For cmux, the initial launcher supports Claude Code and Codex. Run `cmux hooks s
 - `~/.local/share/director/private/`: unrelated private notes and compatibility links for older sessions.
 - `~/.local/share/director/releases/`: installed program versions.
 - `~/.local/share/director/current`: the active release link.
+- `~/.local/share/director/templates/profile/`: public starter rules from the active release.
 - `~/.local/share/director/install.json`: installed file and shell-change ownership.
 
-The install folder provides stable links to the role, scripts, and skills. Every release reads the same personal profile and state. Setup creates missing starter rules and settings without replacing your teaching. Set `DIRECTOR_HOME` before installation to use a different, empty folder.
+The install folder provides stable links to the role, scripts, skills, and public templates. Every release reads the same personal profile and state. Setup copies missing starter rules from `templates/profile/` and creates missing settings without replacing your teaching. Updating public templates never rewrites an existing personal file. Set `DIRECTOR_HOME` before installation to use a different, empty folder.
 
 The installer adds a marked PATH block to `.zshrc` or `.bash_profile` when needed. Open a new terminal afterward, or use `~/.local/bin/director` immediately. Symlinked profiles and other shells receive manual PATH instructions.
 
 Downloads come from GitHub Releases over HTTPS. SHA256 checksums detect damaged or mismatched downloads; they are not a signature from a separate trust authority. Updates stage a complete release before switching `current`. Old releases remain available to existing sessions. Personal files are preserved.
+
+Updaters from before public templates may reject a new release with `Private or generated file in release: templates/profile`. Rerun the installer with `--no-setup` to use the downloaded release's installer and preserve your profile, history, and settings:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vectal-labs/director/main/install.sh | sh -s -- --no-setup
+```
+
+Subsequent updates use `director update` normally. Keep the same `DIRECTOR_HOME` if you selected a custom install folder.
 
 Existing managed installations migrate known Director files from `private/` into `profile/` and `state/`. Original files are backed up in `state/migration-backup/`. Unrelated notes remain untouched. Conflicting destination files stop migration for review.
 
@@ -84,7 +93,7 @@ sh -n install.sh
 python3 scripts/build_release.py --version v0.1.0 --output /tmp/director-release-v0.1.0
 ```
 
-The output directory must be new. It contains `director-v0.1.0.tar.gz`, `SHA256SUMS`, and `install.sh`. The builder uses an explicit file allowlist. It excludes personal data, credentials, tests, and Git state.
+The output directory must be new. It contains `director-v0.1.0.tar.gz`, `SHA256SUMS`, and `install.sh`. The builder explicitly includes only the four public starters in `templates/profile/`: `what.md`, `how.md`, `limits.md`, and `qa.md`. Other files under `templates/` are excluded. Personal data, credentials, tests, and Git state are never packaged.
 
 Pushing a stable `vN.N.N` tag triggers the macOS test and release workflow. The workflow publishes those assets after tests pass. Never replace assets under an existing version; publish a new version instead.
 

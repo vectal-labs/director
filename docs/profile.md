@@ -1,13 +1,15 @@
 # Personal profile and runtime state
 
 The shared repository contains Director's code, role, app skills, and documentation.
-Operator teaching and preferences live in `profile/`. Operational data lives in
+Public starter rules live in tracked `templates/profile/`. Operator teaching and
+preferences live in `profile/`. Operational data lives in
 `state/`. Both directories are gitignored and excluded from release archives.
 `private/` is unrelated private storage; Director does not load it as a profile.
 
 ## File ownership
 
 ```text
+templates/profile/  Public what.md, how.md, limits.md, and qa.md starters
 profile/
   what.md          Scope and judgment
   how.md           Communication style and review workflow
@@ -25,8 +27,10 @@ state/
   migration-backup/  Original data saved before migration
 ```
 
-Setup creates missing profile Markdown files and settings. It never replaces an
-existing profile. Runtime creates journals and state files when needed. App,
+Setup validates the four public templates and copies only missing Markdown files
+into `profile/`. It creates missing settings from the defaults in
+`director/preferences.py`. It never replaces an existing profile. Runtime creates
+journals and state files when needed. App,
 provider, and model selection remain installation configuration in this version;
 copying a profile does not choose a different provider or launch a session.
 
@@ -34,6 +38,30 @@ copying a profile does not choose a different provider or launch a session.
 The profile supplies personal judgment, presentation, and workflow. Profiles never
 grant permission for new interventions. Manual approval remains required, and
 recurring automation needs a separate explicit instruction.
+
+## Develop while using your own Director
+
+Edit shared code and `templates/profile/` to improve the public product. Edit
+`profile/` when teaching your own Director. Both can live in the same checkout:
+the root profile, state, and private directories are gitignored; the public
+templates are versioned and included in releases.
+
+Template edits affect fresh profiles and files created by a later setup. They do
+not silently update existing teaching. Setup reports missing, empty, invalid
+UTF-8, or linked template files before changing personal data.
+
+Use temporary profiles in tests to check public defaults. The test suite copies
+public templates into isolated directories and uses fake app commands. It never
+needs your real profile or review history.
+
+For a source checkout, create missing starter files with:
+
+```sh
+python3 director/setup.py --app bb  # or --app cmux
+```
+
+For managed installations, use `director setup --no-start`. Installed templates
+belong to the release; updates replace them while preserving the personal profile.
 
 ## Settings
 

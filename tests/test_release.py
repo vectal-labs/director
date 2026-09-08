@@ -7,7 +7,7 @@ import tarfile
 import tempfile
 import unittest
 
-from scripts.build_release import build_release, INSTRUCTION_FILES, RUNTIME_FILES
+from scripts.build_release import build_release, INSTRUCTION_FILES, RUNTIME_FILES, TEMPLATE_FILES
 
 
 class ReleaseTests(unittest.TestCase):
@@ -18,7 +18,7 @@ class ReleaseTests(unittest.TestCase):
         self.source = self.root / "source"
         self.source.mkdir()
         # Synthetic source avoids copying private files or running any app CLI.
-        for relative in RUNTIME_FILES + INSTRUCTION_FILES:
+        for relative in RUNTIME_FILES + INSTRUCTION_FILES + TEMPLATE_FILES:
             self.write(relative, f"Public runtime: {relative}\n")
         self.write("install.sh", "#!/bin/sh\nexit 0\n")
         (self.source / "CLAUDE.md").symlink_to("AGENTS.md")
@@ -53,6 +53,9 @@ class ReleaseTests(unittest.TestCase):
             ):
                 self.assertIn(expected, names)
             self.assertEqual(archive.extractfile("director/VERSION").read(), b"v0.1.0\n")
+            for relative in TEMPLATE_FILES:
+                self.assertEqual(archive.extractfile("director/" + relative).read(),
+                                 (self.source / relative).read_bytes())
             self.assertEqual(archive.getmember("director/CLAUDE.md").linkname, "AGENTS.md")
             self.assertEqual(archive.getmember("director/.claude/skills").linkname,
                              "../.agents/skills")
@@ -71,6 +74,9 @@ class ReleaseTests(unittest.TestCase):
             ".git/config", "director/.env", "director/credentials.py",
             "director/__pycache__/scan.pyc", "tests/test_secret.py", ".ssh/id_rsa",
             ".agents/skills/director-bb/.env", ".agents/skills/other/SKILL.md",
+            "templates/profile/.env", "templates/profile/settings.json",
+            "templates/profile/lessons.jsonl", "templates/profile/AGENTS.md",
+            "templates/profile/private/notes.md", "templates/other/qa.md",
         ):
             self.write(relative, secret)
         self.build()
@@ -78,8 +84,11 @@ class ReleaseTests(unittest.TestCase):
             for member in archive.getmembers():
                 if member.isfile():
                     self.assertNotIn(secret.encode(), archive.extractfile(member).read())
-            self.assertFalse(any({"profile", "state", "private"} & set(Path(name).parts)
-                                 for name in archive.getnames()))
+            self.assertFalse(any(len(Path(name).parts) > 1 and Path(name).parts[1] in
+                                 {"profile", "state", "private"} for name in archive.getnames()))
+            self.assertEqual({member.name for member in archive.getmembers()
+                              if member.isfile() and member.name.startswith("director/templates/")},
+                             {"director/" + relative for relative in TEMPLATE_FILES})
             self.assertNotIn("director/director/credentials.py", archive.getnames())
             self.assertNotIn("director/tests/test_secret.py", archive.getnames())
 
@@ -137,6 +146,21 @@ class ReleaseTests(unittest.TestCase):
             self.build()
         self.assertFalse(self.output.exists())
         self.assertFalse(list(self.root.glob(".director-release-*")))
+
+    def test_missing_template_does_not_publish_partial_output(self):
+        (self.source / "templates/profile/qa.md").unlink()
+        with self.assertRaises(FileNotFoundError):
+            self.build()
+        self.assertFalse(self.output.exists())
+
+    def test_template_symlink_cannot_package_personal_teaching(self):
+        teaching = self.write("profile/qa.md", "Private teaching must stay local.\n")
+        path = self.source / "templates/profile/qa.md"
+        path.unlink()
+        path.symlink_to(teaching)
+        with self.assertRaisesRegex(ValueError, "source symlinks"):
+            self.build()
+        self.assertFalse(self.output.exists())
 
     def test_outbound_source_file_symlink_cannot_package_secrets(self):
         secret = self.root / "credential"

@@ -329,6 +329,57 @@ class InstallRecoveryTests(unittest.TestCase):
         self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
         self.assertTrue(self.binary.exists())
 
+    def test_incomplete_public_profile_does_not_replace_working_installation(self):
+        self.installed()
+        teaching = self.managed / "profile/qa.md"
+        teaching.write_text("My exact teaching stays here.\n")
+        (self.sources["v1.1.0"] / "templates/profile/qa.md").unlink()
+        metadata = (self.managed / "install.json").read_bytes()
+        with self.assertRaisesRegex(ValueError, "missing templates/profile/qa.md"):
+            self.activate("v1.1.0")
+        self.assertEqual(teaching.read_text(), "My exact teaching stays here.\n")
+        self.assertEqual((self.managed / "install.json").read_bytes(), metadata)
+        self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
+
+    def test_empty_public_template_does_not_activate_or_migrate_personal_data(self):
+        self.installed()
+        teaching = self.managed / "private/judgment/qa.md"
+        teaching.parent.mkdir()
+        teaching.write_text("Keep this legacy teaching in place on failure.\n")
+        before = {path.relative_to(self.managed): path.read_bytes()
+                  for name in ("profile", "state", "private") for path in (self.managed / name).rglob("*")
+                  if path.is_file()}
+        metadata = (self.managed / "install.json").read_bytes()
+        (self.sources["v1.1.0"] / "templates/profile/qa.md").write_bytes(b" \n")
+        with self.assertRaisesRegex(ValueError, "template"):
+            self.activate("v1.1.0")
+        self.assertEqual((self.managed / "install.json").read_bytes(), metadata)
+        self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
+        self.assertFalse(teaching.is_symlink())
+        self.assertFalse((self.managed / "releases/v1.1.0").exists())
+        self.assertEqual({path.relative_to(self.managed): path.read_bytes()
+                          for name in ("profile", "state", "private") for path in (self.managed / name).rglob("*")
+                          if path.is_file()}, before)
+
+    def test_template_symlink_and_unlisted_file_are_rejected_before_activation(self):
+        self.installed()
+        source = self.sources["v1.1.0"]
+        teaching = self.managed / "profile/qa.md"
+        teaching.write_text("Private teaching.\n")
+        template = source / "templates/profile/qa.md"
+        contents = template.read_bytes()
+        template.unlink()
+        template.symlink_to(teaching)
+        with self.assertRaisesRegex(ValueError, "missing templates/profile/qa.md"):
+            self.activate("v1.1.0")
+        template.unlink()
+        template.write_bytes(contents)
+        (source / "templates/profile/notes.md").write_text("Unlisted content.\n")
+        with self.assertRaisesRegex(ValueError, "Unexpected public template path"):
+            self.activate("v1.1.0")
+        self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
+        self.assertEqual(teaching.read_text(), "Private teaching.\n")
+
     def test_release_redirects_keep_https_and_confine_http_to_local_fixtures(self):
         redirects = install.ReleaseRedirects()
         for source, destination in (

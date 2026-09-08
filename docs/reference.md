@@ -4,7 +4,7 @@ For installation and launch, see the [quick start](../README.md#quick-start) and
 
 ## Setup and personal rules
 
-`python3 director/setup.py --app bb` (or `--app cmux`) checks macOS, Python, and the chosen CLI. It creates missing files in `profile/` and keeps existing files. You can rerun it safely. Setup has been tested with Python 3.9.6 and 3.14.6.
+`python3 director/setup.py --app bb` (or `--app cmux`) checks macOS, Python, and the chosen CLI. It copies missing starter files from `templates/profile/` into `profile/` and keeps existing teaching. You can rerun it safely. See [profile.md](profile.md) for developing public defaults while using a private profile.
 
 - `what.md`: what Director should do.
 - `how.md`: how it should work.

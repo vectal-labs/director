@@ -15,10 +15,38 @@ import textwrap
 import threading
 import unittest
 
-from scripts.build_release import build_release
+from director.install import tree_digest
+from scripts.build_release import build_release, TEMPLATE_FILES
 
 
 REPO = Path(__file__).resolve().parents[1]
+
+# Exact validator from 087d61d814982a4b74a44bb310cebf84af16dd0a. Keep this fixture
+# independent of the new validator so an already-installed updater is exercised.
+PRE_TEMPLATE_VALIDATOR = '''def validate_source(source):
+    version = (source / "VERSION").read_text().strip()
+    if not VERSION.fullmatch(version):
+        raise ValueError("Invalid release VERSION.")
+    for name in ("ROLE.md", "director/cli.py", "director/install.py", "director/lifecycle.py", "director/launch.py",
+                 ".agents/skills/director-bb/SKILL.md", ".agents/skills/director-cmux/SKILL.md"):
+        path = source / name
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"Release is missing {name}.")
+    for path in source.rglob("*"):
+        relative = path.relative_to(source).as_posix()
+        if path.is_symlink() and LINKS.get(relative) != os.readlink(path):
+            raise ValueError(f"Unexpected release symlink: {relative}")
+        if any(p in {*DATA_DIRS, ".git", "__pycache__"} or p.startswith(".env") for p in path.relative_to(source).parts):
+            raise ValueError(f"Private or generated file in release: {relative}")
+        if path.suffix == ".py" and path.is_file():
+            try:
+                compile(path.read_bytes(), relative, "exec")
+            except (SyntaxError, ValueError) as error:
+                raise ValueError(f"Release contains invalid Python: {relative}") from error
+    return version
+
+
+'''
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -121,15 +149,22 @@ class InstallTests(unittest.TestCase):
         for relative, contents in files.items():
             self.assertEqual((self.managed / relative).read_text(), contents)
 
-    def replace_archive(self, version, member):
+    def replace_archive(self, version, member=None, *, replacements=None, remove_prefixes=()):
         archive = self.web / version / f"director-{version}.tar.gz"
         with tarfile.open(archive, "r:gz") as source:
             entries = [(item, source.extractfile(item).read() if item.isfile() else None)
                        for item in source.getmembers()]
         with tarfile.open(archive, "w:gz") as destination:
             for item, content in entries:
+                if any(item.name == prefix or item.name.startswith(prefix + "/")
+                       for prefix in remove_prefixes):
+                    continue
+                if item.name in (replacements or {}):
+                    content = replacements[item.name]
+                    item.size = len(content)
                 destination.addfile(item, io.BytesIO(content) if content is not None else None)
-            destination.addfile(member, io.BytesIO(b"unexpected") if member.isfile() else None)
+            if member is not None:
+                destination.addfile(member, io.BytesIO(b"unexpected") if member.isfile() else None)
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         (archive.parent / "SHA256SUMS").write_text(f"{digest}  {archive.name}\n")
 
@@ -192,6 +227,9 @@ class InstallTests(unittest.TestCase):
         self.assertTrue((self.managed / "current/ROLE.md").is_file())
         self.assertEqual((self.managed / "docs/memory.md").read_text(),
                          (REPO / "docs/memory.md").read_text())
+        self.assertEqual((self.managed / "templates").readlink(), Path("current/templates"))
+        for relative in TEMPLATE_FILES:
+            self.assertEqual((self.managed / relative).read_bytes(), (REPO / relative).read_bytes())
         self.assertTrue((self.managed / "current/.claude/skills/director-bb/SKILL.md").is_file())
         for name in ("profile", "state", "private"):
             self.assertEqual((self.managed / "current" / name).resolve(), (self.managed / name).resolve())
@@ -203,6 +241,116 @@ class InstallTests(unittest.TestCase):
                                   input=(REPO / "install.sh").read_text())
         self.assert_success(result)
         self.assert_success(self.cli("--version"))
+
+    def test_packaged_setup_copies_public_starters_and_keeps_existing_profile(self):
+        self.enable_fake_bb()
+        result = self.bootstrap("--app", "bb", "--provider", "fake-provider",
+                                "--model", "fake-model", "--yes", "--no-start")
+        self.assert_success(result)
+        for relative in TEMPLATE_FILES:
+            active = self.managed / "profile" / Path(relative).name
+            self.assertEqual(active.read_bytes(), (REPO / relative).read_bytes())
+        files = self.personal_data()
+        before = {path.name: path.read_bytes() for path in (self.managed / "profile").iterdir()}
+        self.assert_success(self.cli("setup", "--yes", "--no-start"))
+        self.assertEqual({path.name: path.read_bytes() for path in (self.managed / "profile").iterdir()}, before)
+        self.assert_personal_data(files)
+
+    def test_managed_setup_rejects_invalid_templates_before_app_calls_or_state_writes(self):
+        self.install()
+        self.personal_data()
+        template = self.managed / "current/templates/profile/qa.md"
+        template.write_bytes(b"\xffinvalid UTF-8")
+        # Model a malformed release already accepted by the previous installer,
+        # so ownership validation does not mask the missing template preflight.
+        record = self.managed / "install.json"
+        data = json.loads(record.read_text())
+        data["digests"]["v1.0.0"] = tree_digest(self.managed / "current")
+        record.write_text(json.dumps(data) + "\n")
+        self.enable_fake_bb()
+        before = {path.relative_to(self.managed): path.read_bytes()
+                  for name in ("profile", "state") for path in (self.managed / name).rglob("*")
+                  if path.is_file()}
+        result = self.cli("setup", "--app", "bb", "--provider", "fake-provider",
+                          "--model", "fake-model", "--yes", "--no-start")
+        self.assert_failure(result)
+        self.assertIn("template", result.stderr.lower())
+        self.assertFalse(self.calls.exists(), "invalid public templates must be rejected before app calls")
+        self.assertFalse(Path(self.env["FAKE_BB_STATE"]).exists())
+        self.assertFalse((self.managed / "state/config.json").exists())
+        self.assertEqual({path.relative_to(self.managed): path.read_bytes()
+                          for name in ("profile", "state") for path in (self.managed / name).rglob("*")
+                          if path.is_file()}, before)
+
+    def test_invalid_template_archive_preserves_current_release_and_personal_bytes(self):
+        self.install()
+        self.personal_data()
+        before = {path.relative_to(self.managed): path.read_bytes()
+                  for name in ("profile", "state") for path in (self.managed / name).rglob("*")
+                  if path.is_file()}
+        metadata = (self.managed / "install.json").read_bytes()
+        self.replace_archive("v1.1.0", replacements={
+            "director/templates/profile/qa.md": b"\xffinvalid UTF-8",
+        })
+        result = self.cli("update", version="v1.1.0")
+        self.assert_failure(result)
+        self.assertIn("template", result.stderr.lower())
+        self.assertEqual((self.managed / "install.json").read_bytes(), metadata)
+        self.assertEqual(self.cli("--version").stdout.strip(), "v1.0.0")
+        self.assertFalse((self.managed / "releases/v1.1.0").exists())
+        self.assertEqual({path.relative_to(self.managed): path.read_bytes()
+                          for name in ("profile", "state") for path in (self.managed / name).rglob("*")
+                          if path.is_file()}, before)
+
+    def test_changed_public_starters_on_update_only_fill_missing_personal_files(self):
+        self.enable_fake_bb()
+        self.install()
+        self.assert_success(self.cli("setup", "--app", "bb", "--provider", "fake-provider",
+                                     "--model", "fake-model", "--yes", "--no-start"))
+        files = self.personal_data()
+        profile = self.managed / "profile"
+        (profile / "qa.md").write_bytes("My exact answer: café.\r\n".encode("utf-8"))
+        before = {path.name: path.read_bytes() for path in profile.iterdir()}
+        updated = {"director/" + relative: ("# New public default\n\n" + relative + "\n").encode()
+                   for relative in TEMPLATE_FILES}
+        self.replace_archive("v1.1.0", replacements=updated)
+        self.assert_success(self.cli("update", version="v1.1.0"))
+        self.assert_success(self.cli("setup", "--yes", "--no-start"))
+        self.assertEqual({path.name: path.read_bytes() for path in profile.iterdir()}, before)
+        self.assertEqual((self.managed / "state/log.jsonl").read_text(), files["state/log.jsonl"])
+        self.assertEqual((self.managed / "state/scans/old.json").read_text(), files["state/scans/old.json"])
+        (profile / "limits.md").unlink()
+        self.assert_success(self.cli("setup", "--yes", "--no-start"))
+        self.assertEqual((profile / "limits.md").read_bytes(), updated["director/templates/profile/limits.md"])
+        for name, contents in before.items():
+            if name != "limits.md":
+                self.assertEqual((profile / name).read_bytes(), contents)
+
+    def test_bootstrap_updates_pre_template_validator_and_preserves_personal_bytes(self):
+        installer = (REPO / "director/install.py").read_text()
+        start, end = installer.index("def validate_source("), installer.index("def activate(")
+        installer = installer[:start] + PRE_TEMPLATE_VALIDATOR + installer[end:]
+        installer = installer.replace('"docs", "templates", ".agents"', '"docs", ".agents"')
+        self.replace_archive("v1.0.0", replacements={"director/director/install.py": installer.encode()},
+                             remove_prefixes=("director/templates",))
+        self.install()
+        self.personal_data()
+        before = {path.relative_to(self.managed): path.read_bytes()
+                  for name in ("profile", "state") for path in (self.managed / name).rglob("*")
+                  if path.is_file()}
+        metadata = (self.managed / "install.json").read_bytes()
+        result = self.cli("update", version="v1.1.0")
+        self.assert_failure(result)
+        self.assertIn("Private or generated file in release: templates/profile", result.stderr)
+        self.assertEqual((self.managed / "install.json").read_bytes(), metadata)
+        self.assertEqual(self.cli("--version").stdout.strip(), "v1.0.0")
+        self.assert_success(self.bootstrap("--no-setup", version="v1.1.0"))
+        self.assertEqual(self.cli("--version").stdout.strip(), "v1.1.0")
+        self.assertEqual({path.relative_to(self.managed): path.read_bytes()
+                          for name in ("profile", "state") for path in (self.managed / name).rglob("*")
+                          if path.is_file()}, before)
+        for relative in TEMPLATE_FILES:
+            self.assertEqual((self.managed / relative).read_bytes(), (REPO / relative).read_bytes())
 
     def test_install_rerun_preserves_rules_history_and_single_path_block(self):
         self.install()
@@ -377,6 +525,22 @@ class InstallTests(unittest.TestCase):
         self.assert_failure(result)
         self.assertEqual(self.cli("--version").stdout.strip(), "v1.0.0")
         self.assertEqual((self.managed / "current").readlink(), Path("releases/v1.0.0"))
+
+    def test_unlisted_template_files_and_personal_paths_are_rejected(self):
+        self.install()
+        files = self.personal_data()
+        for name in ("templates/profile/settings.json", "templates/profile/.env",
+                     "templates/profile/private/qa.md", "templates/other/qa.md",
+                     "profile/qa.md", "state/log.jsonl", "private/notes.md"):
+            with self.subTest(name=name):
+                shutil.copytree(self.assets / "v1.1.0", self.web / "v1.1.0", dirs_exist_ok=True)
+                member = tarfile.TarInfo("director/" + name)
+                member.size = len(b"unexpected")
+                self.replace_archive("v1.1.0", member)
+                self.assert_failure(self.cli("update", version="v1.1.0"))
+                self.assert_failure(self.bootstrap("--no-setup", version="v1.1.0"))
+                self.assertEqual(self.cli("--version").stdout.strip(), "v1.0.0")
+                self.assert_personal_data(files)
 
     def test_edited_launcher_blocks_uninstall_without_removing_data(self):
         self.install()

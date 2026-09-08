@@ -1,6 +1,6 @@
-profile/
-state/
-private/
+/profile/
+/state/
+/private/
 .env
 .env.*
 !.env.example

@@ -41,6 +41,7 @@ INSTRUCTION_FILES = (
     ".agents/skills/director-bb/SKILL.md",
     ".agents/skills/director-cmux/SKILL.md",
 )
+TEMPLATE_FILES = tuple(f"templates/profile/{name}.md" for name in ("what", "how", "limits", "qa"))
 LINKS = {
     "CLAUDE.md": "AGENTS.md",
     "director/CLAUDE.md": "AGENTS.md",
@@ -77,7 +78,7 @@ def read_source(source, relative):
 
 def archive_entries(source, version):
     entries = {}
-    for relative in RUNTIME_FILES + INSTRUCTION_FILES:
+    for relative in RUNTIME_FILES + INSTRUCTION_FILES + TEMPLATE_FILES:
         entries[relative] = ("file", read_source(source, relative))
     entries["VERSION"] = ("file", (version + "\n").encode("ascii"))
     for relative, target in LINKS.items():

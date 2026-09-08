@@ -16,15 +16,18 @@ import uuid
 
 try:
     from .migrate import cleanup_legacy_aliases, migrate
+    from .setup import read_templates
 except ImportError:
     from migrate import cleanup_legacy_aliases, migrate
+    from setup import read_templates
 
 VERSION = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+\Z")
 RELEASES = "https://github.com/vectal-labs/director/releases"
-WORKSPACE_LINKS = {name: "current/" + name for name in ("ROLE.md", "AGENTS.md", "CLAUDE.md", ".gitignore", "director", "docs", ".agents", ".claude")}
+WORKSPACE_LINKS = {name: "current/" + name for name in ("ROLE.md", "AGENTS.md", "CLAUDE.md", ".gitignore", "director", "docs", "templates", ".agents", ".claude")}
 LINKS = {"CLAUDE.md": "AGENTS.md", "director/CLAUDE.md": "AGENTS.md",
          ".claude/skills": "../.agents/skills"}
 DATA_DIRS = ("profile", "state", "private")
+TEMPLATE_FILES = tuple(f"templates/profile/{name}.md" for name in ("what", "how", "limits", "qa"))
 
 
 def save(path, data):
@@ -180,6 +183,16 @@ def archive_record(checksums, version=None):
     return rows[0]
 
 
+def validate_release_path(name, *, is_file, is_dir):
+    parts = name.split("/")
+    if parts[0] == "templates":
+        if (is_dir and name in {"templates", "templates/profile"}) or (is_file and name in TEMPLATE_FILES):
+            return
+        raise ValueError(f"Unexpected public template path in release: {name}")
+    if any(p in {*DATA_DIRS, ".git", "__pycache__"} or p.startswith(".env") for p in parts):
+        raise ValueError(f"Private or generated file in release: {name}")
+
+
 def extract(archive, destination):
     """Accept release files and the three known internal links, never arbitrary tar paths."""
     import tarfile
@@ -196,6 +209,7 @@ def extract(archive, destination):
             name = "/".join(parts[1:])
             if name in seen or any("/".join(parts[1:i]) in LINKS for i in range(2, len(parts))):
                 raise ValueError("Duplicate path or symlink parent in release archive.")
+            validate_release_path(name, is_file=member.isfile(), is_dir=member.isdir())
             seen.add(name)
             total += member.size
             if total > 100_000_000 or len(seen) > 2000:
@@ -246,12 +260,18 @@ def validate_source(source):
         path = source / name
         if not path.is_file() or path.is_symlink():
             raise ValueError(f"Release is missing {name}.")
+    # Template-free releases predate file-based starters and remain installable.
+    if (source / "templates").exists():
+        for name in TEMPLATE_FILES:
+            path = source / name
+            if not path.is_file() or path.is_symlink():
+                raise ValueError(f"Release is missing {name}.")
+        read_templates(source)
     for path in source.rglob("*"):
         relative = path.relative_to(source).as_posix()
         if path.is_symlink() and LINKS.get(relative) != os.readlink(path):
             raise ValueError(f"Unexpected release symlink: {relative}")
-        if any(p in {*DATA_DIRS, ".git", "__pycache__"} or p.startswith(".env") for p in path.relative_to(source).parts):
-            raise ValueError(f"Private or generated file in release: {relative}")
+        validate_release_path(relative, is_file=path.is_file(), is_dir=path.is_dir())
         if path.suffix == ".py" and path.is_file():
             try:
                 compile(path.read_bytes(), relative, "exec")

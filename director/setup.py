@@ -6,35 +6,37 @@ import shutil
 import sys
 
 
-from storage import ROOT
-from migrate import migrate
-from preferences import DEFAULTS, read as read_preferences
-EXAMPLES = {
-    "what.md": """# What to do
+try:
+    from .storage import ROOT
+    from .migrate import migrate
+    from .preferences import DEFAULTS, read as read_preferences
+except ImportError:
+    from storage import ROOT
+    from migrate import migrate
+    from preferences import DEFAULTS, read as read_preferences
 
-- Keep my coding agents moving on work I have already requested.
-- Leave finished agents alone.
-- Ask me when a real product, design, or architecture decision is needed.
-""",
-    "how.md": """# How to work
+TEMPLATE_FILES = ("what.md", "how.md", "limits.md", "qa.md")
 
-- Review 1 stopped agent when I ask.
-- Show the exact proposed action and your reason before asking for approval.
-- Keep replies short and clear.
-- Keep corrections scoped: general preference, project decision, temporary instruction, or exception. See ROLE.md and docs/memory.md.
-""",
-    "limits.md": """# Limits
 
-- Ask me before every message, approval, denial, or retry.
-- Do not approve anything irreversible or very costly.
-- Do not start recurring scans unless I explicitly ask.
-""",
-    "qa.md": """# Questions and corrections
-
-No answers yet. Append each question and my exact answer as Q01, Q02, and so on.
-Keep the agent's interpretation, reason, scope, applicable situation, and any ending condition separate from my words. Missing context is unknown, not permission to generalize.
-""",
-}
+def read_templates(root=ROOT):
+    """Validate every public starter before creating or migrating personal data."""
+    for directory in (root / "templates", root / "templates/profile"):
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError(f"Missing or invalid public profile template directory: {directory}")
+    templates = {}
+    for name in TEMPLATE_FILES:
+        path = root / "templates/profile" / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError(f"Missing or invalid public profile template: {path}")
+        content = path.read_bytes()
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError(f"Public profile template must be UTF-8 Markdown: {path}") from None
+        if not text.strip() or "\x00" in text:
+            raise ValueError(f"Public profile template must contain nonempty Markdown: {path}")
+        templates[name] = content
+    return templates
 
 
 def main():
@@ -60,15 +62,16 @@ def main():
     say(f"Requirements OK: macOS, Python {sys.version.split()[0]}, {args.app} CLI.")
 
     try:
+        templates = read_templates()
         migrate(ROOT)
         (ROOT / "state").mkdir(parents=True, exist_ok=True)
         judgment = ROOT / "profile"
         judgment.mkdir(parents=True, exist_ok=True)
-        for name, text in EXAMPLES.items():
+        for name, content in templates.items():
             path = judgment / name
             try:
-                with path.open("x", encoding="utf-8") as file:
-                    file.write(text)
+                with path.open("xb") as file:
+                    file.write(content)
                 say(f"Created profile/{name}")
             except FileExistsError:
                 if not path.is_file():
