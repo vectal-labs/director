@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const {spawn} = require('node:child_process');
+const {spawn, spawnSync} = require('node:child_process');
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 
 async function main() {
@@ -88,9 +88,32 @@ async function main() {
     await page.goto(url.split('#')[0]);
     await page.locator('#error').waitFor();
     assert.match(await page.locator('#error').innerText(), /full URL/);
+    await fs.writeFile(path.join(profile, 'qa.md'), teaching + '\n## 26. Unsafe markup\n</script><script>window.injected=true</script>\n');
+    const exported = spawnSync(process.env.PYTHON || 'python3', ['-B', '-m', 'director.viewer.inline', '--root', root],
+      {cwd: root, env: {...process.env, PYTHONPATH: path.resolve(__dirname, '..')}, encoding: 'utf8'});
+    assert.equal(exported.status, 0, exported.stderr);
+    const file = exported.stdout.match(/file="([^"]+)"/)[1];
+    const html = await fs.readFile(path.join(root, file), 'utf8');
+    await page.goto('about:blank');
+    const network = [];
+    page.on('request', request => network.push(request.url()));
+    await page.setContent('<iframe id="inline" sandbox="allow-scripts" style="width:100%;height:960px;border:0"></iframe>');
+    await page.locator('#inline').evaluate((frame, content) => { frame.srcdoc = content; }, html);
+    const frame = page.frameLocator('#inline');
+    await frame.getByText('26 saved entries', {exact: true}).waitFor();
+    assert(await frame.locator('#refresh').isHidden());
+    await frame.locator('#lp-search').fill('Unsafe markup');
+    await frame.locator('.lp-item').click();
+    await frame.locator('#lp-detail-page').waitFor();
+    assert(await frame.locator('#lp-list-page').isHidden());
+    assert.match(await frame.locator('#evidence').innerText(), /<script>/);
+    assert.equal(await frame.locator('#evidence script').count(), 0);
+    await frame.locator('#lp-back').click();
+    await frame.locator('#lp-list-page').waitFor();
+    assert.deepEqual(network, []);
     assert.deepEqual(errors, []);
-    assert.deepEqual((await fs.readdir(root)).sort(), ['profile']);
-    console.log('Passed: list/detail, history, reload, search, pagination, refresh, empty state, literal markup, missing token, 3 widths and 2 themes.');
+    assert.deepEqual((await fs.readdir(root)).sort(), ['private', 'profile']);
+    console.log('Passed: website checks and offline sandboxed inline navigation, literal markup, no network calls.');
   } finally {
     if (browser) await browser.close();
     child.kill('SIGTERM');

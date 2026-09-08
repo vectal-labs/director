@@ -51,6 +51,8 @@ class ReleaseTests(unittest.TestCase):
                 "director/docs/plugins.md",
                 "director/director/plugins.py",
                 "director/director/viewer/server.py",
+                "director/director/viewer/inline.py",
+                "director/.agents/skills/director-teachings/SKILL.md",
                 "director/director/viewer/reader.py",
                 "director/director/viewer/index.html",
                 "director/director/viewer/app.js",

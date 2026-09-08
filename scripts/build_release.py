@@ -34,6 +34,7 @@ RUNTIME_FILES = (
     "director/viewer/__init__.py",
     "director/viewer/reader.py",
     "director/viewer/server.py",
+    "director/viewer/inline.py",
     "director/viewer/index.html",
     "director/viewer/app.js",
     "director/viewer/styles.css",
@@ -49,6 +50,7 @@ INSTRUCTION_FILES = (
     "docs/viewer.md",
     ".agents/skills/director-bb/SKILL.md",
     ".agents/skills/director-cmux/SKILL.md",
+    ".agents/skills/director-teachings/SKILL.md",
 )
 TEMPLATE_FILES = tuple(f"templates/profile/{name}.md" for name in ("what", "how", "limits", "qa"))
 LINKS = {

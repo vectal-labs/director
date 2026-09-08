@@ -21,6 +21,24 @@ Use `--root /path/to/director` to inspect another checkout or installation,
 browser. Use the full printed URL; its fragment contains the local session token.
 Restarting the server creates a new token. No accounts or external services are used.
 
+## Inside a bb thread
+
+In bb, ask an agent **“visualize my Director teachings here”**. The project-level
+`director-teachings` skill renders the same list/detail UI inside the conversation.
+It creates a self-contained snapshot under the thread workspace's gitignored
+`private/` directory. No server or website is needed. Ask again to refresh it;
+the capture time is displayed and earlier snapshots stay unchanged.
+
+Direct export from a checkout:
+
+```sh
+python3 -B -m director.viewer.inline --root /path/to/director
+```
+
+Paste the printed `::inline-vis{...}` directive into the bb response. The HTML
+contains private teaching and must remain local and uncommitted. bb must have
+inline visualization support enabled. Snapshots over 5 MiB fail explicitly.
+
 ## Data and boundaries
 
 - Reads `profile/{qa,what,how,limits}.md` and both `profile/lessons.jsonl` and

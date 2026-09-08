@@ -14,7 +14,7 @@ import select
 from urllib.parse import urlsplit
 from unittest.mock import patch
 
-from director.viewer import reader, server
+from director.viewer import reader, server, inline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +46,31 @@ class ViewerTests(unittest.TestCase):
     def test_empty_profile_does_not_create_directories(self):
         self.assertEqual(reader.read(self.root), {'records': [], 'warnings': []})
         self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_inline_snapshot_is_self_contained_and_escapes_teaching(self):
+        self.write('profile/qa.md', QA + '\n## 2. Markup\n</script><script>window.injected=true</script>\n')
+        before = self.snapshot()
+        html = inline.render(self.root).decode()
+        self.assertNotIn('src="/app.js"', html)
+        self.assertNotIn('href="/styles.css"', html)
+        self.assertIn('id="teaching-snapshot"', html)
+        self.assertIn('\\u003c/script>', html)
+        self.assertIn("default-src 'none'", html)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_inline_export_refuses_overwrite_and_non_private_paths(self):
+        self.write('profile/qa.md', QA)
+        def export(output):
+            return subprocess.run([sys.executable, '-B', '-m', 'director.viewer.inline',
+                                   '--root', str(self.root), '--output', output], cwd=self.root,
+                                  env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True, text=True)
+        result = export('private/view.html')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('::inline-vis{file="private/view.html" height="960"}', result.stdout)
+        self.assertEqual((self.root / 'private/view.html').stat().st_mode & 0o777, 0o600)
+        self.assertNotEqual(export('private/view.html').returncode, 0)
+        self.assertNotEqual(export('profile/qa.md').returncode, 0)
+        self.assertNotEqual(export('public.html').returncode, 0)
 
     def test_exact_source_summary_and_unknown_storage_date(self):
         self.write('profile/qa.md', QA)

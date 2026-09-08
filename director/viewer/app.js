@@ -2,6 +2,9 @@
 const $ = id => document.getElementById(id);
 const params = () => new URLSearchParams(location.hash.slice(1));
 const token = params().get('token') || '';
+const embedded = $('teaching-snapshot');
+const snapshot = embedded ? JSON.parse(embedded.textContent) : null;
+let inlineSelection = null;
 let rows = [], page = 0, requestVersion = 0;
 const pageSize = 12;
 
@@ -18,6 +21,13 @@ function showError(error) {
 }
 
 async function api(path) {
+  if (snapshot) {
+    if (path === '/api/lessons') return snapshot;
+    const id = new URLSearchParams(path.split('?')[1]).get('id');
+    const row = snapshot.records.find(item => item.id === id);
+    if (!row) throw new Error('Teaching is not in this snapshot.');
+    return row;
+  }
   if (!token) throw new Error('Open the full URL printed by director memory to access this local session.');
   const response = await fetch(path, {headers: {'X-Viewer-Token': token}, cache: 'no-store'});
   if (!response.ok) throw new Error(response.status === 403 ? 'This viewer session has ended. Reopen the URL printed by director memory.' : await response.text());
@@ -25,6 +35,7 @@ async function api(path) {
 }
 
 function route(id) {
+  if (snapshot) { inlineSelection = id; renderRoute(); return; }
   const next = new URLSearchParams({token});
   if (id) next.set('lesson', id);
   location.hash = next.toString();
@@ -95,7 +106,7 @@ function detail(row) {
 
 async function renderRoute() {
   const version = ++requestVersion;
-  const id = params().get('lesson');
+  const id = snapshot ? inlineSelection : params().get('lesson');
   showError(null);
   $('lp-list-page').hidden = Boolean(id);
   $('lp-detail-page').hidden = true;
@@ -133,4 +144,9 @@ $('lp-prev').onclick = () => { page--; list(); };
 $('lp-next').onclick = () => { page++; list(); };
 $('refresh').onclick = refresh;
 window.addEventListener('hashchange', renderRoute);
+if (snapshot) {
+  $('refresh').hidden = true;
+  document.querySelector('.lp-demo').textContent = 'Read-only snapshot';
+  document.querySelector('.lp-bottom').textContent = `Captured ${snapshot.captured_at} · Ask the agent to refresh this view`;
+}
 refresh();
