@@ -21,10 +21,13 @@ Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, 
 ```bash
 bb thread show <id> --json                 # status, pending interaction, parent, environment
 bb thread log <id> --all                   # whole conversation; use for a thread you have not handled
+bb thread queue list <id> --json           # later instructions not yet in the conversation
 bb thread log <id>                         # newest turns; enough for one you handled recently
 bb thread interactions list <id> --json    # what it is waiting on: command, file change, plan, permission, question
 bb thread output <id>                      # its latest final message
 ```
+
+Read the queue even after `log --all`: queued instructions enter the conversation only when dispatched. Use their contents and order when establishing the current phase and authorization. Respect any schedule or waiting condition; queued work is not permission to bypass it or send a duplicate instruction. If the queue cannot be read, report the missing context and do not act.
 
 Its repo: `bb thread show <id> --json` gives the environment; read that repo's `AGENTS.md` and `docs/adr/` before deciding.
 
@@ -32,8 +35,11 @@ Its repo: `bb thread show <id> --json` gives the environment; read that repo's `
 
 ```bash
 bb thread show <id> --json    # status must still be stopped
+bb thread queue list <id> --json  # compare with the queue read for the proposal
 python3 director/scan.py               # the thread must not be in skipped_user_recent
 ```
+
+The scan covers dispatched input only. Check queue creation and edit times against the profile’s recent-human-input window too. If the queue changed since the proposal or cannot be read, skip the approved action and review the new context.
 
 The target must still be a candidate with `input_history_known: true`, and its current prompt must still match the approved action. If it is running, absent, recently contacted, unreadable, or changed, do nothing and append `outcome --status skipped` to the original review. Keep the original scan and run number; the recheck scan may no longer contain the target.
 
