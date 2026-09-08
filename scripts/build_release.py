@@ -31,6 +31,12 @@ RUNTIME_FILES = (
     "director/migrate.py",
     "director/scan.py",
     "director/setup.py",
+    "director/viewer/__init__.py",
+    "director/viewer/reader.py",
+    "director/viewer/server.py",
+    "director/viewer/index.html",
+    "director/viewer/app.js",
+    "director/viewer/styles.css",
 )
 INSTRUCTION_FILES = (
     ".gitignore",
@@ -40,6 +46,7 @@ INSTRUCTION_FILES = (
     "docs/memory.md",
     "docs/profile.md",
     "docs/plugins.md",
+    "docs/viewer.md",
     ".agents/skills/director-bb/SKILL.md",
     ".agents/skills/director-cmux/SKILL.md",
 )

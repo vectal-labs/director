@@ -50,6 +50,12 @@ class ReleaseTests(unittest.TestCase):
                 "director/docs/profile.md",
                 "director/docs/plugins.md",
                 "director/director/plugins.py",
+                "director/director/viewer/server.py",
+                "director/director/viewer/reader.py",
+                "director/director/viewer/index.html",
+                "director/director/viewer/app.js",
+                "director/director/viewer/styles.css",
+                "director/docs/viewer.md",
                 "director/.agents/skills/director-bb/SKILL.md",
                 "director/.agents/skills/director-cmux/SKILL.md",
             ):

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Director · Teaching</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<main id="lesson-pages">
+  <header class="lp-chrome"><div class="lp-brand"><span class="lp-logo">D</span> DIRECTOR</div><span class="lp-demo">Memory inspector · Read only</span></header>
+  <div id="error" role="alert" hidden></div>
+  <details id="warnings" hidden><summary>Some records need attention</summary><div id="warning-text"></div></details>
+  <section class="lp-page" id="lp-list-page" aria-label="All teachings">
+    <div class="lp-heading"><div><h1>Lessons &amp; teachings</h1><p class="lp-sub" id="lp-count" aria-live="polite">Loading saved teaching…</p></div><div class="lp-buttons"><input class="lp-input" id="lp-search" type="search" aria-label="Search teachings" placeholder="Search titles…"><button class="lp-button" id="refresh" type="button">Refresh</button></div></div>
+    <div class="lp-list" id="lp-list"></div>
+    <div class="lp-pagination"><span id="lp-range" aria-live="polite"></span><div class="lp-buttons"><button class="lp-button" type="button" id="lp-prev">← Previous</button><button class="lp-button" type="button" id="lp-next">Next →</button></div></div>
+  </section>
+  <section class="lp-page" id="lp-detail-page" aria-label="Teaching detail" hidden>
+    <button class="lp-back" id="lp-back" type="button">← All lessons &amp; teachings</button>
+    <div class="lp-detail-heading"><span class="lp-label" id="lp-detail-id"></span><h1 id="lp-detail-title"></h1><p class="lp-sub" id="lp-status"></p></div>
+    <div class="lp-trace">
+      <section class="lp-step"><span class="lp-number">1</span><h2>What you taught it</h2><div id="evidence"></div><details id="source-section"><summary>Original source and context</summary><pre id="source"></pre></details></section>
+      <section class="lp-step"><span class="lp-number">2</span><h2>How it was stored</h2><div class="lp-box"><div class="lp-fields"><div><span class="lp-label">Source date</span><p class="lp-value" id="lp-source-date"></p></div><div><span class="lp-label">Stored at</span><p class="lp-value" id="stored-at"></p></div><div><span class="lp-label">Scope</span><p class="lp-value" id="scope"></p></div></div></div><div id="locations"></div></section>
+      <section class="lp-step"><span class="lp-number">3</span><h2>How Director understands it</h2><div id="interpretations"></div><dl id="conditions"></dl></section>
+    </div>
+    <section id="related-section" hidden><h2>Related teaching</h2><div id="related"></div></section>
+  </section>
+  <footer class="lp-bottom"><span>Reads your local profile and lesson journals</span><span>Saved wording · No new interpretation</span></footer>
+</main>
+</body>
+</html>

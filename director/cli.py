@@ -56,6 +56,10 @@ def main(argv=None):
     plugin = sub.add_parser("plugin", help="run enabled private plugins", add_help=False)
     plugin.add_argument("--help", action="store_true", dest="plugin_help")
     plugin.add_argument("plugin_args", nargs=argparse.REMAINDER)
+    memory_view = sub.add_parser("memory", help="review saved teaching in a local read-only UI")
+    memory_view.add_argument("--root", type=Path, help="profile checkout; defaults to the installation home")
+    memory_view.add_argument("--port", type=int, default=0)
+    memory_view.add_argument("--no-open", action="store_true")
     args = parser.parse_args(argv)
     root = args.home.expanduser().absolute()
     if args.version:
@@ -68,6 +72,10 @@ def main(argv=None):
         parser.error("Director requires macOS and Python 3.9 or newer.")
     if args.command == "plugin":
         return plugins.main(["--help"] if args.plugin_help else args.plugin_args, root=root)
+    if args.command == "memory":
+        from viewer.server import main as view_memory
+        options = ["--port", str(args.port)] + (["--no-open"] if args.no_open else [])
+        return view_memory(options, root=args.root or root)
     try:
         with install.locked(root, create=args.command == "install"):
             if args.command == "install":
