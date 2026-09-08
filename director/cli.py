@@ -13,6 +13,7 @@ sys.dont_write_bytecode = True
 import install
 import launch
 import lifecycle
+import plugins
 
 
 def configure(root, args):
@@ -52,6 +53,9 @@ def main(argv=None):
     update.add_argument("--version", dest="release_version", help="explicitly install v1.2.3")
     remove = sub.add_parser("uninstall", help="stop owned sessions and remove Director")
     remove.add_argument("--purge", action="store_true", help="also permanently delete personal rules, logs, and scans")
+    plugin = sub.add_parser("plugin", help="run enabled private plugins", add_help=False)
+    plugin.add_argument("--help", action="store_true", dest="plugin_help")
+    plugin.add_argument("plugin_args", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     root = args.home.expanduser().absolute()
     if args.version:
@@ -62,6 +66,8 @@ def main(argv=None):
         return 0
     if sys.platform != "darwin" or sys.version_info < (3, 9):
         parser.error("Director requires macOS and Python 3.9 or newer.")
+    if args.command == "plugin":
+        return plugins.main(["--help"] if args.plugin_help else args.plugin_args, root=root)
     try:
         with install.locked(root, create=args.command == "install"):
             if args.command == "install":

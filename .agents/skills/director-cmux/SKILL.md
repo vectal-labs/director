@@ -5,7 +5,16 @@ description: 'cmux mechanics for the Director: identify itself, scan, read a sto
 
 # Director in cmux
 
-Your own surface is `$CMUX_SURFACE_ID` in workspace `$CMUX_WORKSPACE_ID`; `cmux identify --json` confirms it. The scan excludes your surface.
+## Startup
+
+Your own surface is `$CMUX_SURFACE_ID` in workspace `$CMUX_WORKSPACE_ID`; `cmux identify --json` confirms it. Before the first scan, rename that workspace yourself to `DIRECTOR` (all caps), without asking the operator:
+
+```bash
+cmux rename-workspace --workspace "${CMUX_WORKSPACE_ID:?}" "DIRECTOR"
+cmux list-workspaces --json   # verify your workspace's title is DIRECTOR
+```
+
+Rename only your own workspace, using its explicit ID rather than the focused workspace. If it is already named `DIRECTOR`, skip the rename. If the command fails, report the error and continue the review. The scan excludes your surface.
 
 ## Ref rules
 

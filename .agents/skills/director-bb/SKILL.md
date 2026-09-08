@@ -5,7 +5,16 @@ description: 'bb mechanics for the Director: identify itself, scan, read a stopp
 
 # Director in bb
 
-Your own thread is `$BB_THREAD_ID`. `bb status --json` shows it. If it is not titled DIRECTOR, ask the operator to rename it.
+## Startup
+
+Your own thread is `$BB_THREAD_ID`. Run `bb status --json` to confirm it. Before the first scan, if its title is not exactly `DIRECTOR`, rename it yourself without asking the operator:
+
+```bash
+bb thread update "${BB_THREAD_ID:?}" --title "DIRECTOR" --json
+bb thread show "${BB_THREAD_ID:?}" --json   # verify the title is DIRECTOR
+```
+
+Rename only your own thread. If the command fails, report the error and continue the review.
 
 ## Scan (read-only)
 

@@ -26,6 +26,7 @@ RUNTIME_FILES = (
     "director/log.py",
     "director/memory.py",
     "director/preferences.py",
+    "director/plugins.py",
     "director/storage.py",
     "director/migrate.py",
     "director/scan.py",
@@ -38,6 +39,7 @@ INSTRUCTION_FILES = (
     "director/AGENTS.md",
     "docs/memory.md",
     "docs/profile.md",
+    "docs/plugins.md",
     ".agents/skills/director-bb/SKILL.md",
     ".agents/skills/director-cmux/SKILL.md",
 )

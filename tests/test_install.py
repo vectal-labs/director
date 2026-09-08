@@ -145,6 +145,31 @@ class InstallTests(unittest.TestCase):
             path.write_text(contents)
         return files
 
+    def test_private_plugin_survives_update_and_stays_outside_releases(self):
+        self.install()
+        folder = self.root / "external plugin"
+        folder.mkdir()
+        (folder / "plugin.json").write_text(json.dumps({
+            "version": 1, "name": "example", "command": ["python3", "run.py"]}))
+        (folder / "SKILL.md").write_text("PRIVATE-PLUGIN-MARKER")
+        (folder / "run.py").write_text('import json; print(json.dumps({"version":1,"result":{"count":3}}))')
+        registry = self.managed / "profile/plugins.json"
+        registry.write_text(json.dumps({"example": str(folder)}))
+        self.assert_success(self.cli("plugin", "--help"))
+        self.assert_success(self.cli("plugin", "list"))
+        result = self.cli("plugin", "observe", "example")
+        self.assert_success(result)
+        self.assertEqual(json.loads(result.stdout)["result"], {"count": 3})
+        self.assertEqual(Path(json.loads(result.stdout)["record"]).resolve().parent,
+                         (self.managed / "state/plugins/example").resolve())
+        self.assert_success(self.cli("update", version="v1.1.0"))
+        self.assert_success(self.cli("plugin", "observe", "example"))
+        self.assertEqual(json.loads(registry.read_text()), {"example": str(folder)})
+        self.assertEqual(len(list((self.managed / "state/plugins/example").glob("*.json"))), 2)
+        self.assert_success(self.cli("uninstall"))
+        self.assertTrue(registry.is_file())
+        self.assertTrue((folder / "run.py").is_file())
+
     def assert_personal_data(self, files):
         for relative, contents in files.items():
             self.assertEqual((self.managed / relative).read_text(), contents)

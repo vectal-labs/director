@@ -48,6 +48,8 @@ class ReleaseTests(unittest.TestCase):
                 "director/director/scan.py", "director/ROLE.md",
                 "director/docs/memory.md",
                 "director/docs/profile.md",
+                "director/docs/plugins.md",
+                "director/director/plugins.py",
                 "director/.agents/skills/director-bb/SKILL.md",
                 "director/.agents/skills/director-cmux/SKILL.md",
             ):
@@ -70,7 +72,8 @@ class ReleaseTests(unittest.TestCase):
         secret = "PRIVATE-CREDENTIAL-MARKER"
         for relative in (
             "private/log.jsonl", "private/judgment/what.md", "profile/qa.md",
-            "profile/settings.json", "profile/lessons.jsonl", "state/config.json", "state/log.jsonl", ".env", ".env.production",
+            "profile/settings.json", "profile/lessons.jsonl", "profile/plugins.json",
+            "private/todoist-plugin/plugin.py", "state/plugins/example/run.json", "state/config.json", "state/log.jsonl", ".env", ".env.production",
             ".git/config", "director/.env", "director/credentials.py",
             "director/__pycache__/scan.pyc", "tests/test_secret.py", ".ssh/id_rsa",
             ".agents/skills/director-bb/.env", ".agents/skills/other/SKILL.md",
