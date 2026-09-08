@@ -18,8 +18,7 @@ profile/
   lessons.jsonl    Durable structured preferences and project decisions
 state/
   log.jsonl        Original reviews, corrections, and delivery outcomes
-  scans/           Saved review observations
-  learning/        Conversation snapshots and source-linked questions/answers
+  scans/           Saved observations
   lessons.jsonl    Temporary instructions and individual exceptions
   config.json     This installation's app, provider, model, and local IDs
   launches.json   Sessions owned by this installation

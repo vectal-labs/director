@@ -92,5 +92,3 @@ text must be examined in context before reuse; missing scope or dates are
 unknown. New corrections append; they do not silently erase independent earlier
 lessons. End a superseded lesson explicitly. Never rewrite old logs or bulk
 promote past corrections into standing preferences.
-
-Learning can also start from observed work and prior conversations, without a review run. See [learning.md](learning.md). Its source-linked questions and exact answers stay in `state/learning/`; confirmed teaching is recorded in `profile/qa.md` with the same scope rules. Never invent a review to attach an answer to it.
