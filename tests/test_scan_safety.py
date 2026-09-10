@@ -108,9 +108,50 @@ class ScanSafetyTests(unittest.TestCase):
                 self.assertEqual([row["id"] for row in result["candidates"]], ["STOPPED"])
                 self.assertNotIn("secret", json.dumps(result["errors"]))
 
+    def test_bb_children_are_never_candidates_and_orphans_are_reported(self):
+        data = self.app.fixture["bb"]
+        base = data["threads"][0]
+        parents = {"active": {"status": "active"}, "starting": {"status": "starting"},
+                   "stopping": {"status": "stopping"}, "archived": {"archivedAt": 1},
+                   "deleted": {"deletedAt": 1}, "hidden": {"visibility": "hidden"},
+                   "remote": {"environmentHostId": "other"}, "self": {}}
+        data["threads"] += [{**base, "id": name, **fields} for name, fields in parents.items()]
+        children = [{**base, "id": "child-" + parent, "parentThreadId": parent}
+                    for parent in ["a", *parents, "missing", "child-a"]]
+        data["threads"] += children
+        for child in children:
+            data["events"][child["id"]] = [{**data["events"]["a"][0], "data": {
+                "item": {"type": "agentMessage", "text": "Can I continue?"}}}]
+        self.app.save_fixture()
+        result = self.app.scan()
+        self.assertEqual(result["coverage"], "full")
+        self.assertEqual([row["id"] for row in result["candidates"]], ["a"])
+        self.assertEqual(result["selection"]["suggested"], "a")
+        self.assertEqual(result["orphaned_children"], [
+            {"id": "child-archived", "parent": "archived", "reason": "archived"},
+            {"id": "child-deleted", "parent": "deleted", "reason": "deleted"},
+            {"id": "child-missing", "parent": "missing", "reason": "missing"}])
+        calls = [json.loads(line) for line in self.app.calls.read_text().splitlines()]
+        self.assertEqual(calls, [["bb", "status", "--json"],
+                                 ["bb", "thread", "list", "--include-hidden", "--json"],
+                                 ["bb", "thread", "log", "a", "--all", "--json"]])
+
+    def test_bb_recheck_excludes_a_thread_that_now_has_a_parent(self):
+        self.assertEqual(self.app.scan()["selection"]["suggested"], "a")
+        self.app.fixture["bb"]["threads"][0]["parentThreadId"] = "missing"
+        self.app.save_fixture()
+        self.app.calls.write_text("")
+        result = self.app.scan()
+        self.assertEqual(result["candidates"], [])
+        self.assertIsNone(result["selection"]["suggested"])
+        self.assertEqual(result["coverage"], "full")
+        self.assertEqual(result["orphaned_children"], [{"id": "a", "parent": "missing", "reason": "missing"}])
+        self.assertEqual(len(self.app.called()), 2)
+
     def test_bad_bb_thread_does_not_hide_healthy_threads(self):
         base = self.app.fixture["bb"]["threads"][0]
-        for invalid in (None, {"id": "bad"}, {**base, "id": "bad", "updatedAt": "secret"}):
+        for invalid in (None, {"id": "bad"}, {**base, "id": "bad", "updatedAt": "secret"},
+                        *({**base, "id": "bad", "parentThreadId": value} for value in ([], {}, 0, ""))):
             with self.subTest(invalid=invalid):
                 self.app.fixture["bb"]["threads"] = [invalid, base]
                 self.app.save_fixture()

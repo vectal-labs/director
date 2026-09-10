@@ -19,11 +19,13 @@ Rename only your own thread. If the command fails, report the error and continue
 ## Scan (read-only)
 
 ```bash
-python3 director/scan.py            # every stopped bb thread on this Mac, ranked; saves state/scans/<time>.json
+python3 director/scan.py            # stopped top-level bb threads on this Mac, ranked; saves state/scans/<time>.json
 python3 director/scan.py --hours 6  # only threads updated in the last 6 hours
 ```
 
 Per candidate: `id`, `title`, `project`, `provider`, `status` (`idle`, `error`, `pending`), `idle_min`, `pending_interaction`, `recent_error`, `ends_with_question`, `last_agent_msg`, `user_min_ago` (last human message), and the review fields `eligibility_reason`, `review_eligible`, `history`. `skipped_user_recent` lists threads the operator wrote to within the profile’s recent-human-input window. `coverage: partial` means some thread data or logs could not be read reliably; those failures are in `errors`, so do not treat affected threads as clear.
+
+Threads with `parentThreadId` are excluded before their logs are read. Read children only as context when reviewing their manager; route proposed instructions through that manager. `orphaned_children` reports otherwise in-scope stopped children as `{id, parent, reason}` when the parent is missing from the list, archived, or deleted. Flag these for the operator; do not automatically take over.
 
 ## Read one thread
 
@@ -43,7 +45,7 @@ Its repo: `bb thread show <id> --json` gives the environment; read that repo's `
 ## Re-check right before acting
 
 ```bash
-bb thread show <id> --json    # status must still be stopped
+bb thread show <id> --json    # status must still be stopped; parentThreadId must still be null
 bb thread queue list <id> --json  # compare with the queue read for the proposal
 python3 director/scan.py               # the thread must not be in skipped_user_recent
 ```

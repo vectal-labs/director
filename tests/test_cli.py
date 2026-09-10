@@ -22,8 +22,9 @@ if data is None:
 args = [a for a in sys.argv[1:] if a != "--json"]
 if app == "bb" and args == ["status"]:
     result = {"thread": {"environment": {"hostId": "host"}}}
-elif app == "bb" and args == ["thread", "list"]:
-    result = data["threads"]
+elif app == "bb" and args in (["thread", "list"], ["thread", "list", "--include-hidden"]):
+    result = [t for t in data["threads"] if "--include-hidden" in args
+              or not isinstance(t, dict) or t.get("visibility") != "hidden"]
 elif app == "bb" and args[:2] == ["thread", "log"]:
     result = data["events"][args[2]]
 elif app == "bb" and args[:2] == ["thread", "show"]:

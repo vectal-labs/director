@@ -1,4 +1,4 @@
-"""bb adapter. Reads bb only: every stopped thread on this Mac, its recent input, and a state fingerprint.
+"""bb adapter. Reads bb only: stopped top-level threads on this Mac, recent input, and a state fingerprint.
 
 Nothing here messages an agent or resolves an interaction.
 """
@@ -100,7 +100,8 @@ def scan_thread(thread, now):
 def collect(threads, now, self_id, host_id, hours=None, recent_user_seconds=180):
     if not isinstance(threads, list):
         raise ValueError("bb thread list did not return threads")
-    eligible, candidates, skipped, errors = [], [], [], []
+    by_id = {t["id"]: t for t in threads if isinstance(t, dict) and isinstance(t.get("id"), str)}
+    eligible, candidates, skipped, errors, orphans = [], [], [], [], []
     for thread in threads:
         thread_id = None
         try:
@@ -122,8 +123,19 @@ def collect(threads, now, self_id, host_id, hours=None, recent_user_seconds=180)
             for key in ("title", "titleFallback"):
                 if thread.get(key) is not None and not isinstance(thread[key], str):
                     raise ValueError(f"bb thread has an invalid {key}")
-            if hours is None or now * 1000 - updated <= hours * 3600_000:
-                eligible.append(thread)
+            if hours is not None and now * 1000 - updated > hours * 3600_000:
+                continue
+            parent_id = thread.get("parentThreadId")
+            if parent_id is not None:
+                if not isinstance(parent_id, str) or not parent_id:
+                    raise ValueError("bb thread has an invalid parentThreadId")
+                parent = by_id.get(parent_id)
+                reason = ("missing" if parent is None else "deleted" if parent.get("deletedAt")
+                          else "archived" if parent.get("archivedAt") else None)
+                if reason:
+                    orphans.append({"id": thread_id, "parent": parent_id, "reason": reason})
+                continue
+            eligible.append(thread)
         except ERRORS as error:
             errors.append({"id": thread_id, "error": type(error).__name__, "detail": str(error)})
     with ThreadPoolExecutor(max_workers=8) as pool:
@@ -135,7 +147,7 @@ def collect(threads, now, self_id, host_id, hours=None, recent_user_seconds=180)
                 (skipped if recent else candidates).append(row)
             except ERRORS as error:
                 errors.append({"id": thread["id"], "error": type(error).__name__, "detail": str(error)})
-    return candidates, [row["id"] for row in skipped], errors
+    return candidates, [row["id"] for row in skipped], errors, orphans
 
 
 def scan(self_id, now, hours=None, recent_user_seconds=180):
@@ -145,6 +157,6 @@ def scan(self_id, now, hours=None, recent_user_seconds=180):
     host = environment.get("hostId") if isinstance(environment, dict) else None
     if not isinstance(host, str) or not host:
         raise ValueError("bb status did not return an environment host ID")
-    threads = bb("thread", "list")
-    candidates, skipped, errors = collect(threads, now, self_id, host, hours, recent_user_seconds)
-    return candidates, skipped, errors, {"host": host, "listed": len(threads)}
+    threads = bb("thread", "list", "--include-hidden")
+    candidates, skipped, errors, orphans = collect(threads, now, self_id, host, hours, recent_user_seconds)
+    return candidates, skipped, errors, {"host": host, "listed": len(threads), "orphaned_children": orphans}
