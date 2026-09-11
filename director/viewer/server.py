@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import secrets
+import socketserver
 import webbrowser
 from urllib.parse import parse_qs, urlsplit
 
@@ -11,6 +12,16 @@ from . import reader
 
 ASSETS = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'),
           '/styles.css': ('styles.css', 'text/css')}
+
+
+class LoopbackServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer.server_bind reverse-resolves the bind address with socket.getfqdn,
+        # which stalls for 30+ seconds on macOS 15 resolvers. The address is fixed loopback.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def make_server(root, port=0):
@@ -62,8 +73,7 @@ def make_server(root, port=0):
             except (ValueError, OSError) as error:
                 self.send(500, str(error).encode())
 
-    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
-    server.daemon_threads = True
+    server = LoopbackServer(('127.0.0.1', port), Handler)
     server.url = f'http://127.0.0.1:{server.server_port}/#token={token}'
     return server
 

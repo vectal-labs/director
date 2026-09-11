@@ -41,6 +41,7 @@ RUNTIME_FILES = (
 )
 INSTRUCTION_FILES = (
     ".gitignore",
+    "LICENSE",
     "AGENTS.md",
     "ROLE.md",
     "director/AGENTS.md",

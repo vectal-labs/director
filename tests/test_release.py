@@ -46,6 +46,7 @@ class ReleaseTests(unittest.TestCase):
                 "director/director/cli.py", "director/director/install.py",
                 "director/director/launch.py", "director/director/lifecycle.py",
                 "director/director/scan.py", "director/ROLE.md",
+                "director/LICENSE",
                 "director/docs/memory.md",
                 "director/docs/profile.md",
                 "director/docs/plugins.md",

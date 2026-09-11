@@ -178,6 +178,14 @@ class ViewerTests(unittest.TestCase):
         self.write('profile/qa.md', QA + '\n## 2. New teaching\nFresh content\n')
         self.assertEqual(len(json.loads(self.request('/api/lessons')[1])['records']), 2)
 
+    def test_server_starts_without_reverse_dns_lookup(self):
+        # macOS 15 resolvers stall loopback reverse lookups; startup must never depend on them.
+        with patch('socket.getfqdn', side_effect=AssertionError('reverse DNS lookup')), \
+                patch('socket.gethostbyaddr', side_effect=AssertionError('reverse DNS lookup')):
+            self.serve()
+        self.assertEqual((self.httpd.server_name, self.httpd.server_port), ('127.0.0.1', self.httpd.server_address[1]))
+        self.assertEqual(self.request('/')[0], 200)
+
     def test_http_rejects_cross_origin_missing_token_and_arbitrary_files(self):
         self.write('profile/qa.md', QA)
         self.serve()
